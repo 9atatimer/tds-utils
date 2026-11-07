@@ -6,7 +6,7 @@ once per target.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from adherence.domain.checks import (
@@ -86,6 +86,20 @@ NOT_IN_SUITE = "not implemented in this suite version"
 # files and reports each file it skipped (DESIGN.ARCH-ADHERENCE.md, G11).
 # Complexity is absent for shell until a complexity adapter shows it
 # covers shell (task-070: "only where lizard covers the language").
+# The checks that read the design records or the radar: under nested
+# declarations each runs once per records scope, over that scope's units
+# against that scope's records and radar.
+RECORD_READING = frozenset(
+    {
+        "Change",
+        "Trace",
+        "Public surface",
+        "Kept test",
+        "Then asserted",
+        "Language",
+        *RADAR_CHECKS,
+    }
+)
 READ_BY: Mapping[str, frozenset[str]] = {
     CodeLanguage.SHELL.value: frozenset({"Anatomy", "Stub", "Dependency"}),
 }
@@ -103,6 +117,18 @@ class Checked:
     findings: tuple[Finding, ...]
     coverage: tuple[Coverage, ...]
     questions: tuple[Ask, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RecordScope:
+    """The files whose nearest governing declarations name one design
+    record and one radar, the declaration as that scope reads it, and the
+    records and radar read for it."""
+
+    paths: frozenset[str]
+    declaration: Declaration
+    records: DesignRecords | RecordsUnavailable
+    radar: Radar | RecordsUnavailable
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -164,6 +190,36 @@ def _outcome(check: Check, given: _Inputs) -> CheckOutcome | None:
     return None
 
 
+def _scoped_outcome(
+    check: Check, given: _Inputs, scopes: Sequence[RecordScope]
+) -> CheckOutcome | None:
+    """A record-reading check run once per records scope, over that scope's
+    files against its records and radar, the outcomes together: it ran if
+    it ran in any scope."""
+    files = frozenset(u.path for u in given.model.units)
+    outcomes: list[CheckOutcome] = []
+    for scope in scopes:
+        outcome = _outcome(
+            check,
+            replace(
+                given,
+                model=without(given.model, files - scope.paths),
+                declaration=scope.declaration,
+                records=scope.records,
+                radar=scope.radar,
+            ),
+        )
+        if outcome is None:
+            return None
+        outcomes.append(outcome)
+    return CheckOutcome(
+        tuple(f for o in outcomes for f in o.findings),
+        tuple(c for o in outcomes for c in o.coverage),
+        any(o.ran for o in outcomes),
+        tuple(q for o in outcomes for q in o.questions),
+    )
+
+
 def _raises(check: Check, given: _Inputs) -> bool:
     """Whether the check raises over the inputs."""
     try:
@@ -195,12 +251,14 @@ def each_check(
     *,
     radar: Radar | RecordsUnavailable = NO_RADAR,
     checks: Mapping[str, CheckFunction] = TARGET_CHECKS,
+    scopes: Sequence[RecordScope] = (),
 ) -> Iterator[FinishedCheck]:
     """Every check over the model, in catalog order, each as it finishes: an
     implemented one by its outcome, with the questions a judged one puts to
     the judge, any other as coverage. The Radar-true
-    checks read the radar. A check that raises is caught here, once, and is
-    coverage naming the error."""
+    checks read the radar. Given two or more records `scopes`, each check
+    that reads the records or the radar runs once per scope. A check that
+    raises is caught here, once, and is coverage naming the error."""
     given = _Inputs(model, declaration, records, parameters, radar, checks)
     # A file in no layer is already coverage (domain/coverage, UNASSIGNED).
     layered = {u.path for u in model.units if u.layer is not None}
@@ -213,7 +271,11 @@ def each_check(
         unread = unread_by(check, model)
         scoped = given.over(without(model, unread))
         try:
-            outcome = _outcome(check, scoped)
+            outcome = (
+                _scoped_outcome(check, scoped, scopes)
+                if len(scopes) > 1 and check.name in RECORD_READING
+                else _outcome(check, scoped)
+            )
         except Exception as error:  # the check boundary (Use-case surface)
             outcome = _errored(check, error, scoped)
         if outcome is None:

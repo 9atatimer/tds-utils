@@ -17,6 +17,7 @@ from typing import TypeVar
 
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
+    DECLARATION_PATH,
     Declaration,
     Landing,
     NoLandingPR,
@@ -103,6 +104,20 @@ class LatchedRepository:
             return self._latch.unasked(f"list the history of {path}")
         return self._latch.seen(self._inner.history(path, base, deadline))
 
+    def find(
+        self, name: str, at: Base | Head, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        if self._latch.tripped:
+            return self._latch.unasked(f"find every {name}")
+        return self._latch.seen(self._inner.find(name, at, deadline))
+
+    def touched(
+        self, name: str, base: Base, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        if self._latch.tripped:
+            return self._latch.unasked(f"list the history of every {name}")
+        return self._latch.seen(self._inner.touched(name, base, deadline))
+
 
 class LatchedReviews:
     """ReviewPort that asks nothing once the latch has tripped."""
@@ -112,11 +127,11 @@ class LatchedReviews:
         self._latch = latch
 
     def approvals(
-        self, commit: str, deadline: Deadline | None
+        self, commit: str, deadline: Deadline | None, *, path: str = DECLARATION_PATH
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
         if self._latch.tripped:
             return self._latch.unasked("read the reviews")
-        return self._latch.seen(self._inner.approvals(commit, deadline))
+        return self._latch.seen(self._inner.approvals(commit, deadline, path=path))
 
 
 class LatchedCodeModel:

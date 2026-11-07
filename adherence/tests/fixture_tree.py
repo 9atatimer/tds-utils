@@ -1,9 +1,9 @@
 """Fixture trees hold their declaration as `adherence.fixture.toml`, never
-`adherence.toml`. A fixture -- some deliberately flawed, one deliberately
-unreadable -- is an asset, never a declaration of this repository, and an
-engine that reads a declaration in any directory as that subtree's
-(tds-utils Issue#695) would read a file of that name as a sub-project of
-tds-utils itself. A test plants a fixture tree under its real name."""
+`adherence.toml`: a declaration file in any directory of this repository
+governs that subtree for the suite judging the repository itself
+(DESIGN.ARCH-ADHERENCE.md, The declaration), and a fixture -- some
+deliberately flawed, one deliberately unreadable -- is an asset, never a
+sub-project. A test plants a fixture tree under its real name."""
 
 from __future__ import annotations
 

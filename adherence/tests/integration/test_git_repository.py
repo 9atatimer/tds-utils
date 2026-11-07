@@ -14,7 +14,9 @@ from pathlib import Path
 import pytest
 
 from adherence.adapters.git import GitRepository
+from adherence.application.load import load_declaration
 from adherence.domain.deadline import Deadline, TimedOut
+from adherence.domain.declaration import DeclarationUnreadable
 from adherence.domain.target import Base, Head
 from adherence.ports.repository import Refused, RepositoryPort
 from tests.git_kit import GIT_ENV, git, make_repository
@@ -182,6 +184,35 @@ def test_history_lists_newest_first_and_stops_at_the_base(tmp_path: Path) -> Non
     assert history == (second, first.revision)
 
 
+def test_touched_names_a_declaration_since_deleted(tmp_path: Path) -> None:
+    """Given a history that adds a sub-project's adherence.toml and then
+    deletes it, When the declarations the base's history touched are asked
+    for, Then the deleted one is listed beside the one still present, and
+    a file whose name only ends the same way is not."""
+    root = tmp_path / "repo"
+    make_repository(
+        root,
+        base={
+            "adherence.toml": b"a\n",
+            "pkg/adherence.toml": b"b\n",
+            "x-adherence.toml": b"c\n",
+        },
+        staged={},
+        working={},
+    )
+    git(root, "rm", "-q", "pkg/adherence.toml")
+    git(root, "commit", "-q", "-m", "drop")
+    base = Base(git(root, "rev-parse", "HEAD"))
+
+    repository = GitRepository(str(root))
+
+    assert repository.touched("adherence.toml", base, None) == (
+        "adherence.toml",
+        "pkg/adherence.toml",
+    )
+    assert repository.find("adherence.toml", base, None) == ("adherence.toml",)
+
+
 def test_changed_staged_reads_the_index_git_names_for_its_hook(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -212,3 +243,28 @@ def test_changed_staged_reads_the_index_git_names_for_its_hook(
     assert unset.created == ()
     assert not isinstance(named, Refused | TimedOut), named
     assert named.created == ("b.py",)
+
+
+@pytest.mark.parametrize(
+    "at", [Head.at_revision("HEAD"), Head.working_tree()], ids=["revision", "working"]
+)
+def test_a_symlinked_declaration_is_refused_and_so_unreadable(
+    tmp_path: Path, at: Head
+) -> None:
+    """Given a sub-project whose adherence.toml is a symbolic link, When the
+    declaration is loaded at a revision or from the working tree, Then the
+    git adapter refuses the link and the declaration cannot be read, naming
+    the file."""
+    root = tmp_path / "repo"
+    (tmp_path / "outside.toml").write_bytes(b"[layers]\n")
+    git(tmp_path, "init", "-q", "-b", "master", str(root))
+    (root / "adherence.toml").write_bytes(b"[layers]\n")
+    (root / "pkg").mkdir()
+    (root / "pkg" / "adherence.toml").symlink_to(tmp_path / "outside.toml")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "link")
+
+    loaded = load_declaration(at, repository=GitRepository(str(root)), deadline=None)
+
+    assert isinstance(loaded, DeclarationUnreadable), loaded
+    assert "pkg/adherence.toml" in loaded.reason

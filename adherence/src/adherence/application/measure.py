@@ -22,9 +22,10 @@ from adherence.application.latch import (
     LatchedRepository,
     latched_analyzers,
 )
-from adherence.domain.checks.run import each_check, gathered
+from adherence.domain.checks.run import RecordScope, each_check, gathered
 from adherence.domain.coverage import (
     Coverage,
+    undeclared_subtree,
     unmeasured,
     unmeasured_in,
     unmodelled,
@@ -34,6 +35,7 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
     Declaration,
     DeclarationUnreadable,
+    RecordPaths,
     exempted,
     refusal_notices,
     with_overrides,
@@ -44,6 +46,7 @@ from adherence.domain.model import (
     CodeModel,
     Metrics,
     MetricsUnavailable,
+    UnitKind,
     has_no_extension,
     language_of,
     merged,
@@ -453,6 +456,66 @@ def _design_inputs(
     )
 
 
+def _record_scopes(
+    model: CodeModel,
+    declaration: Declaration,
+    records: RecordsPort,
+    at: Base | Head,
+    deadline: Deadline | None,
+) -> tuple[RecordScope, ...]:
+    """The model's files grouped by the design record and radar their
+    nearest governing declarations name, each group's read once, its
+    declaration naming that group's own pair -- a sub-project's, when that
+    is the one governing declaration naming them, never only the root's."""
+    groups: dict[tuple[RecordPaths | None, str | None], set[str]] = {}
+    for unit in model.units:
+        if unit.kind is UnitKind.FILE:
+            key = (declaration.records_for(unit.path), declaration.radar_for(unit.path))
+            groups.setdefault(key, set()).add(unit.path)
+    scopes: list[RecordScope] = []
+    for (paths, radar), files in groups.items():
+        scoped = replace(
+            declaration, records=paths, radar=radar, record_scopes=(), radar_scopes=()
+        )
+        design, tech = _design_inputs(records, at, scoped, deadline)
+        scopes.append(RecordScope(frozenset(files), scoped, design, tech))
+    return tuple(scopes)
+
+
+def _scoped_inputs(
+    model: CodeModel,
+    declaration: Declaration,
+    records: RecordsPort,
+    at: Base | Head,
+    deadline: Deadline | None,
+) -> tuple[
+    tuple[RecordScope, ...],
+    DesignRecords | RecordsUnavailable,
+    Radar | RecordsUnavailable,
+]:
+    """The records scopes, when the model's files name two or more pairs,
+    and the records and radar the run's checks are given: with one pair,
+    that pair's own, read once; with none (no file), the declaration's."""
+    scopes = _record_scopes(model, declaration, records, at, deadline)
+    if scopes:
+        return (scopes if len(scopes) > 1 else ()), scopes[0].records, scopes[0].radar
+    design, tech = _design_inputs(records, at, declaration, deadline)
+    return scopes, design, tech
+
+
+def _governed(
+    paths: tuple[str, ...], declaration: Declaration
+) -> tuple[tuple[str, ...], tuple[Coverage, ...]]:
+    """The paths a governing declaration reaches, and the coverage of each
+    it does not: a path in an undeclared subtree has no adherence, so it is
+    never modelled, no check reads it and Covered never names it. Every
+    path of an undeclared repository is read as before."""
+    if not declaration.declared:
+        return paths, ()
+    governed = tuple(p for p in paths if declaration.governs(p))
+    return governed, undeclared_subtree(sorted(set(paths) - set(governed)))
+
+
 def _bodies(model: CodeModel) -> tuple[BodyDigest, ...]:
     """Each named definition's body digest, by which a rename is told."""
     return tuple(
@@ -509,6 +572,8 @@ def measure_reporting(
     paths = _listed(repository.tree(at, deadline), analyzers, identity, at)
     if isinstance(paths, Report):
         return paths
+    paths, ungoverned = _governed(paths, declaration)
+    reported(ungoverned, finished)
     modelled = _with_metrics(
         _languages_modelled(
             paths,
@@ -529,13 +594,15 @@ def measure_reporting(
         merged(modelled.models),
         {path: CodeLanguage.SHELL.value for path in modelled.shell},
     )
-    design, tech = _design_inputs(
-        LatchedRecords(records, latch), at, declaration, deadline
+    scopes, design, tech = _scoped_inputs(
+        whole, declaration, LatchedRecords(records, latch), at, deadline
     )
     reported(unmodelled(whole, declared=declaration.declared), finished)
     sources, unmeasured_checks = modelled.sources, modelled.unmeasured_checks
     done: list[FinishedCheck] = []
-    for check in each_check(whole, declaration, design, parameters, radar=tech):
+    for check in each_check(
+        whole, declaration, design, parameters, radar=tech, scopes=scopes
+    ):
         done.append(check)
         if finished is not None and not check.questions:
             _report(
@@ -562,6 +629,7 @@ def measure_reporting(
         findings=findings,
         notices=(*refusal_notices(declaration), *applied),
         coverage=(
+            *ungoverned,
             *modelled.coverage,
             *unmodelled(whole, declared=declaration.declared),
             *checked.coverage,

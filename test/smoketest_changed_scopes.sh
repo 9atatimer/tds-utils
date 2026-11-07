@@ -117,6 +117,12 @@ test_trees() {
     assert_eq "the other Adherence record" "$(only adherence)" \
         "$(classify "${d}" docs/design/ARCHITECTURE.ARCH-ADHERENCE.md)"
     assert_eq "the radar" "$(only adherence)" "$(classify "${d}" lmde/TECH_RADAR.md)"
+    assert_eq "a sub-project's declaration" "$(only adherence)" \
+        "$(classify "${d}" ops/tool/adherence.toml)"
+    assert_eq "a declaration under chores/ runs chores and adherence" \
+        "$(only chores adherence)" "$(classify "${d}" chores/adherence.toml)"
+    assert_eq "a file merely named like it is not a declaration" \
+        "$(only smoketests shellcheck)" "$(classify "${d}" ops/x-adherence.toml)"
     assert_eq "the reusable workflow adherence-judge calls" \
         "$(only smoketests shellcheck adherence)" \
         "$(classify "${d}" .github/workflows/adherence.yml)"

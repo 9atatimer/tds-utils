@@ -42,10 +42,10 @@ not exist for our languages and our rules.
   fact, and a judged check that is a bounded judgement with a confidence.
   An explanation is prose on request; it is not a check and never a
   verdict.
-- A repository declares its layers, runtimes and design records once, with
-  the owner's approval. A change is judged under the declaration in force
-  before it; its own declaration may widen what is checked, never narrow
-  it.
+- A repository declares its layers, runtimes and design records, at its
+  root or sub-project by sub-project, with the owner's approval. A change
+  is judged under the declarations in force before it; its own
+  declarations may widen what is checked, never narrow it.
 - The design and architecture records are inputs: Trace and Language read
   the Behaviors table and the Domain Language, never a restatement, at the
   revision of the code they are compared against.
@@ -62,7 +62,7 @@ not exist for our languages and our rules.
 
 | Given up | Why it is worth it |
 |---|---|
-| A repository must declare its layers before layer checks run | Inferring layers from paths would guess, and a guess that is wrong fails the wrong file; a declaration is a sentence the owner writes once |
+| A repository must declare its layers before layer checks run | Inferring layers from paths would guess, and a guess that is wrong fails the wrong file; a declaration is a sentence the owner writes once per sub-project |
 | A repository without a design record gets no Trace or Language check | Those checks compare code to a contract; with no contract there is nothing to compare, and a made-up contract would be a design nobody reviewed |
 | Judged checks can abstain, so some flaws go unreported | An abstention is honest; a forced answer at low confidence would fail clean changes and teach everyone to ignore the suite |
 | Adopting on a repository that does not adhere starts with its flaws known, not with a fixed bar | A bar nobody clears is switched off; a ratchet from wherever the repository stands is a bar that holds |
@@ -103,13 +103,14 @@ not exist for our languages and our rules.
 - **G8 Findings are fixable.** A finding names the unit, the quality, the
   check, and the evidence. A layer finding also names the layer the unit
   is in and the layer it reached.
-- **G9 One declaration, the owner's.** A repository states once which
-  units are in which layer, which runtimes it has, where its design
-  records are, which radar it is held to, and what it exempts; the
-  declaration changes only with the owner's approval. A change is judged
-  under the declaration in force before it, plus the coverage its own
-  declaration adds. What its own declaration removes or exempts takes
-  effect from the next change.
+- **G9 The declarations are the owner's.** A repository states, in one
+  declaration at its root or one per sub-project, which units are in
+  which layer, which runtimes it has, where its design records are, which
+  radar it is held to, and what it exempts; a declaration changes only
+  with the owner's approval. A change is judged under the declarations in
+  force before it, plus the coverage its own declarations add. What its
+  own declarations remove or exempt takes effect from the next change. A
+  subtree no declaration governs has no adherence (The declaration).
 - **G10 Design records are read, not restated.** Trace reads the design's
   Behaviors table and the architecture record's use-case surface.
   Language reads the design's Domain Language. Each is read at the
@@ -166,7 +167,9 @@ not exist for our languages and our rules.
 - **A hosted service or a dashboard.** Reports persist; a view over them
   is a later consumer of the data.
 - **Judging a repository with no declaration on layer checks.** It gets
-  the checks that need none and a coverage report naming the rest.
+  the checks that need none and a coverage report naming the rest. An
+  undeclared subtree of a declared repository gets less: no check reads
+  it, and the coverage names it.
 - **Owning the SDLC's rules.** The skills define the qualities; the suite
   executes them. A rule change is a skill change first.
 
@@ -192,7 +195,7 @@ judged part runs only on what the rule part could not decide.
 | Behavior-driven | Every kept test asserts a design behavior through the public surface | Kept test (R): every design behavior has a test that calls its use case. Then asserted (J): that test asserts the row's Then, not merely that nothing raised. Public surface (R): no test reaches past a use case into a helper or an internal. Real assertion (R): no test without an assertion and no placeholder assertion |
 | Complete | The code does the work it claims to | Stub (R): no stub marker, placeholder body, or sleep standing in for work, in a non-test unit; the stub vocabulary is a parameter. Done (J): a unit whose body does not implement what its name and docstring claim. Hand-rolled (J): a primitive written by hand where a radar-adopted library provides it. Complexity (R): no function over the complexity ceiling. Duplication (R): no clone over the duplication ceiling |
 | Radar-true | Every dependency is one the radar allows | Dependency (R): every dependency a change introduces is on Adopt or Trial of the radar the repository names. Edge only (R): every radar entry is imported from an adapter, never from the core |
-| Declared | Every unit is seen, under a contract the change did not shrink | Covered (R): every unit the change creates is in a declared layer, by the declaration in force or by the change's own widening. Record kept (R): no design behavior and no Domain Language term is removed from an approved record |
+| Declared | Every unit is seen, under a contract the change did not shrink | Covered (R): every unit the change creates under a governing declaration is in a declared layer, by the declarations in force or by the change's own widening. Record kept (R): no design behavior and no Domain Language term is removed from an approved record |
 
 Kept test and Then asserted together are the Trace test's other half: Trace
 says the behavior has a home in the code; these say it has a home in the
@@ -202,11 +205,13 @@ unavoidable.
 ### Units and layers
 
 A unit is what a check is over: a file, a function, a type, a module, an
-import edge, a design behavior, or a test. Every unit the declaration
-covers is in exactly one layer: domain, application, ports, adapters,
-composition root, or test. A unit the declaration does not cover is
-unassigned; it is counted in coverage, never checked, and if the change
-created it, Covered finds it.
+import edge, a design behavior, or a test. Every unit the governing
+declarations cover is in exactly one layer: domain, application, ports,
+adapters, composition root, or test. A unit under a governing declaration
+that no layer covers is unassigned; it is counted in coverage, never
+checked, and if the change created it, Covered finds it. A unit under no
+governing declaration has no adherence: it is counted in coverage as an
+undeclared subtree, no check reads it, and Covered never names it.
 
 Layers are not directories. A declaration may assign a whole directory, a
 file, or a region of a file, so a one-file tool and a package are measured
@@ -214,30 +219,82 @@ alike (G12).
 
 ### The declaration
 
-A repository declares, once, in one place:
+A repository declares, in a file named `adherence.toml`:
 
 - which units are in which layer, and which runtimes it has;
 - where its design records are;
 - which radar it is held to;
 - its exemptions, each with a reason.
 
-The declaration changes only with the owner's approval (G9). A change is
-judged under the declaration in force before it, with one addition that
-cannot lower anything: layer assignments in the change's own declaration
-for units the change creates are honored, because widening can only add
-checks. Everything else a change's declaration does, removing or moving
-an assignment, covering an existing unit, adding an exemption, takes
-effect from the next change. An existing unit the declaration newly covers is therefore
-measured at the next change's base first, so its flaws are existing, not
-introduced. Every edit to the declaration is a notice in the report, so
-a reviewer sees it beside the verdict.
+A declaration governs the subtree of the directory that holds it, and
+every path or glob in it, a layer glob, a region's file, a marker file, a
+record, the radar, a runtime pattern, an exemption's unit, is relative to
+that directory and cannot leave it: a path that escapes makes the
+declaration unreadable. A repository may hold one at its root, which
+governs the whole tree, and one in each sub-project, which governs that
+sub-project; neither is required, and a monorepo is declared sub-project
+by sub-project. The governing declarations of a path are every
+declaration in the directories from the root down to the path's own, root
+first. A path with none has no adherence: nothing is measured there and
+nothing is found there, and the coverage says so; a change that creates
+files there is noticed, never faulted. A declaration is never added to
+assets, art or the scripts that make them. A file named `adherence.toml`
+that a governing declaration above it assigns to the test layer is test
+data, not a declaration: it is never discovered, never in force, never a
+notice.
 
-When the declaration and the code disagree, for example a declared runtime
+The governing declarations are read as one. The union sections, layers,
+runtimes, exemptions and vocabulary, are the union of what the governing
+declarations say; one finding two files exempt is one exemption carrying
+both reasons, and an exemption reaches only its own file's subtree.
+Vocabulary applies to the whole run and so has no override: a nearer file
+may only extend it. The single-valued sections, the design record, the radar
+and the limits, take the nearest governing declaration's value: the
+outermost to name one sets the default for its subtree, and a nearer one
+may set its own only by saying it overrides. The notation tells defining
+from overriding apart: a plain section (`[layers]`, `[records]`,
+`[radar]`, `[limits]`, `[exemptions]`, `[runtimes]`, `[vocabulary]`)
+defines, and the same section under `[override]` (`[override.layers]`,
+`[override.records]`, and so on, never `[override.vocabulary]`) replaces
+the whole section for its own subtree: everything the declarations above say for that section is void
+there, and the overriding file's entries are the section. A plain
+single-valued section is legal only where no declaration above has that
+section, plain or overriding; an `[override]` is legal only where one
+above has it; a plain union section is always legal and adds. Two
+governing declarations that both define a single-valued section without
+an override, and two that place one real path (a path in the tree at the
+revision) in two layers without an override of the layers, are a
+conflict; a conflict is a declaration that cannot be read, and the report
+names both files, the section and the path. An override where no
+governing declaration above has the section is also refused: it overrides
+nothing, and the author has misplaced it. The limits, whichever file sets
+them, only lower the shipped ceilings.
+
+A declaration changes only with the owner's approval (G9), file by file:
+each `adherence.toml` has its own declaration in force, the newest landed
+revision of that file whose landing the owner approved, a deletion
+included, and each edit to any of them is a notice in the report. An
+approved deletion ends the file's governance from the next change; a
+deletion the owner did not approve leaves the last approved revision in
+force. A change is judged under the declarations in force before it, with
+one addition that cannot lower anything: layer assignments in the
+change's own edits to a declaration already in force, for units the
+change creates, are honored, because widening can only add checks.
+Everything else a change's declarations do, removing or moving an
+assignment, covering an existing unit, adding an exemption, takes effect
+from the next change, and so does a declaration new at the head: it
+governs nothing for its own change, the units under it alone are an
+undeclared subtree, and the new file is a notice. A declaration lands
+first, then the code it governs is judged. An existing unit a declaration
+newly covers is therefore measured at the next change's base first, so
+its flaws are existing, not introduced.
+
+When a declaration and the code disagree, for example a declared runtime
 with no composition root, the suite reports the disagreement as a finding
 and does not guess which is right. A declaration in force that cannot be
-read ends the run as not run. A change whose own declaration cannot be
-read is judged under the declaration in force, and the unreadable edit is
-a notice.
+read, a conflict among the governing declarations included, ends the run
+as not run. A change whose own declaration cannot be read is judged under
+the declarations in force, and the unreadable edit is a notice.
 
 ### Design records as input
 
@@ -261,8 +318,9 @@ A run measures a repository, or a change in it, and produces a report:
 - the findings, each with its quality, check, kind, unit, evidence and
   provenance, so that each can be fixed from the report alone (G8);
 - the abstentions, per judged check;
-- the notices: declaration edits, exemptions applied, and anything else
-  a reviewer should see that is not a finding;
+- the notices: declaration edits, a declaration new at the head, files
+  created under no declaration, exemptions applied, and anything else a
+  reviewer should see that is not a finding;
 - coverage: every unit and check that did not run, and why.
 
 A judged check puts one bounded question about one unit to the judge and
@@ -272,7 +330,7 @@ the judge never decides that. A judged finding carries its confidence
 (G2). The judge is given the unit as data to be judged, never as
 instructions (G18).
 
-A rule check is reproducible: the same code and the same declaration give
+A rule check is reproducible: the same code and the same declarations give
 the same result on every machine.
 
 ### Judging a change
@@ -297,7 +355,7 @@ counts as neither, on either side.
 | Verdict | Meaning |
 |---|---|
 | not run | The suite could not measure; the reason is reported |
-| lowered | An introduced finding from a rule check or from a judged check above its threshold, that no exemption in the declaration in force silences |
+| lowered | An introduced finding from a rule check or from a judged check above its threshold, that no exemption in the declarations in force silences |
 | inconclusive | Not lowered, and a judged check abstained on a unit the change touched, a rule or judged check could not run on a unit the change touched, a check that ran at the base could not run at the head, or the base could not be measured under the same suite, declaration, measured languages and judge availability as the head |
 | raised | Not lowered, not inconclusive, and at least one finding removed |
 | held | None of the above |
@@ -408,7 +466,7 @@ checks.
 | A clone over the duplication ceiling is found | Given two stretches of code alike beyond the ceiling, When Duplication runs, Then one finding names both |
 | A disallowed dependency is found | Given a change that introduces a dependency not on Adopt or Trial of the declared radar, When Dependency runs, Then a finding names the dependency and the ring it is on, or that it is absent |
 | A radar entry in the core is found | Given a domain or application unit that imports a radar entry, When Edge only runs, Then a finding names the unit and the entry |
-| An undeclared new unit is found | Given a change that creates a unit no declaration assigns to a layer, When Covered runs, Then a finding names the unit and the verdict is lowered |
+| An undeclared new unit is found | Given a change that creates a unit under a governing declaration that assigns it no layer, When Covered runs, Then a finding names the unit and the verdict is lowered |
 | A widening is honored | Given a change that creates a unit and assigns it a layer in its own declaration, When the change is judged, Then the unit is checked under that layer and Covered finds nothing |
 | A narrowed record is found | Given a change that removes a behavior or a term from an approved record, When Record kept runs, Then a finding names the record and what was removed |
 | A record is read with its code | Given a change that adds a behavior to the record and its use case in the same change, When Trace runs, Then there is no Trace finding for it |
@@ -418,6 +476,17 @@ checks.
 | A missing record on both sides is not inconclusive | Given a repository whose design record is missing at the base and at the head, When a change is judged, Then the missing record alone does not make the verdict inconclusive |
 | An untraceable row is a finding against the record | Given a behavior row with no nameable action or observation, When Trace runs, Then a finding names the row and the record |
 | An undeclared repository is measured | Given a repository with no declaration, When a run is asked for, Then the checks that need no declaration run, and coverage names every check that needed one |
+| An undeclared subtree has no adherence | Given a repository with a declaration in one sub-project and a change that creates a unit in another sub-project with none, When the change is judged, Then no check reads the unit, Covered finds nothing, coverage names the unit's path as an undeclared subtree, and a notice names the directory the change created under no declaration |
+| A new declaration governs from the next change | Given a change that adds a sub-project with its own declaration, When the change is judged, Then the new declaration governs nothing for this change, its units are an undeclared subtree, and the new file is a notice |
+| A declaration's paths stay in its subtree | Given a declaration whose path or glob escapes its own directory, When a run is asked for, Then the verdict is not run and the report names the file and the path |
+| A fixture is not a declaration | Given a file named `adherence.toml` under a path a governing declaration above it assigns to the test layer, When a run is asked for, Then it is not read as a declaration, governs nothing, and is no notice |
+| A deleted declaration ends with its approval | Given a landing the owner approved that deletes a sub-project's declaration, When the next change is judged, Then nothing governs that subtree; Given a deletion the owner did not approve, Then the last approved revision is in force and the deletion is a notice |
+| A sub-project's declaration governs its subtree | Given a declaration in a sub-project whose layer paths are relative to that directory, When a run is asked for, Then every unit under that directory is assigned by it and no unit outside the directory is |
+| Governing declarations are read as one | Given a root declaration naming the radar and a sub-project declaration naming its layers and design record, When a run is asked for, Then a unit in the sub-project is checked under those layers, against that record and that radar |
+| An override replaces a parent's default | Given a root declaration that names a radar and a sub-project declaration that names its own under `[override.radar]`, When a run is asked for, Then the sub-project's units are held to the sub-project's radar and the rest of the tree to the root's |
+| A silent conflict is refused | Given two governing declarations that place one path in two layers, or that both define one single-valued section, neither under `[override]`, When a run is asked for, Then the verdict is not run and the report names both files and the section |
+| An override of nothing is refused | Given a sub-project declaration with a section under `[override]` that no governing declaration above it defines, When a run is asked for, Then the verdict is not run and the report names the file and the section |
+| A declaration in force is settled per file | Given two declarations of which only one has a landing the owner approved, When a change is judged, Then the approved one is in force and the other is a notice, and the units it alone would govern are an undeclared subtree |
 | An unreadable declaration is not run | Given a declaration in force that cannot be read, When a run is asked for, Then the verdict is not run and the report names the error |
 | An unreadable edit is a notice | Given a readable declaration in force and a change whose own declaration cannot be read, When the change is judged, Then it is judged under the declaration in force and the unreadable edit is a notice |
 | An unapproved declaration is not in force | Given a declaration edit that landed without the owner's approval, When the next change is judged, Then it is judged under the last approved declaration and the unapproved edit is a notice |
@@ -476,9 +545,9 @@ checks.
 
 | From | To | Trigger | Condition |
 |---|---|---|---|
-| requested | declared | the declaration in force is read | it exists and is well-formed |
-| requested | undeclared | no declaration | the repository has none |
-| requested | not run | the suite cannot proceed | the declaration in force cannot be read, no unit is in a measured language, or the repository cannot be read |
+| requested | declared | the declarations in force are read | at least one exists and the governing declarations are well-formed; a subtree none governs is coverage within the run |
+| requested | undeclared | no declaration | the repository has none in force anywhere |
+| requested | not run | the suite cannot proceed | a declaration in force cannot be read or the governing declarations conflict, no unit is in a measured language, or the repository cannot be read |
 | declared, undeclared | measured | every check that can run has run | always |
 | measured | reported | the report is written and, for a change, the verdict is set | always; a failure to persist is noted, not fatal |
 
@@ -526,10 +595,27 @@ checks.
 - **Runtime.** A declared entry the repository can be run as, each with
   one composition root.
 - **Region.** A span of one file assigned to one layer.
-- **Declaration.** A repository's statement of its layers, runtimes,
-  design records, radar and exemptions. Invariant:
-  changes only with the owner's approval; a change is judged under the one
-  in force before it plus its own widening.
+- **Declaration.** One `adherence.toml`: a statement of the layers,
+  runtimes, design record, radar and exemptions of the subtree of the
+  directory that holds it, its paths relative to that directory.
+  Invariant: changes only with the owner's approval; a change is judged
+  under the one in force before it plus its own widening.
+- **Sub-project.** A directory below the repository root that holds a
+  declaration; what a monorepo's package is to the suite. Invariant: its
+  declaration's paths stay under it.
+- **Governing declarations.** The declarations in the directories from
+  the repository root down to a path's own, root first, read as one: the
+  union of their union sections (layers, runtimes, exemptions,
+  vocabulary), the nearest file's value for each single-valued section
+  (design record, radar, limits). Invariant: a conflict among them is a
+  declaration that cannot be read, never a pick.
+- **Undeclared subtree.** A path with no governing declaration. Invariant:
+  no check reads it, Covered never names it, and coverage says so.
+- **Override.** A section a declaration writes under `[override]` to
+  replace, for its subtree, the whole of what the governing declarations
+  above it say for that section. Invariant: refused where no declaration
+  above has the section; a plain single-valued section is refused where
+  one does.
 - **Approval.** The owner's assent to one declaration edit, attributable
   to the owner and not to the author of the change that carries it.
   Invariant: an edit without it never becomes the declaration in force;
@@ -600,7 +686,7 @@ checks.
   core reads no time.
 - **Parameters.** The Parameters table as one value a run is given: the
   thresholds, the vocabulary and the limits, as the shipped defaults; the
-  run merges the declaration's overrides in itself.
+  run merges the declarations' adjustments in itself.
 - **CodeLanguage.** A language the suite measures, told by a source's
   file extension or, for a file with none, by its shebang, and named apart
   from the Language check. A source in a language no analyzer measures is
@@ -644,10 +730,11 @@ checks.
   builds or executes it (G18). A judged question is fixed by the suite;
   what the repository supplies is its data. Neither the judge nor the
   explainer can act on anything.
-- **The first declaration is the owner's.** The declaration in force at
-  adoption is one the owner wrote or approved; until then the repository
+- **The first declaration is the owner's.** Each declaration in force
+  is one the owner wrote or approved; until a sub-project's is, that
+  sub-project is an undeclared subtree, and until any is, the repository
   is undeclared. A declaration the owner did not approve stays untrusted
-  data and is never the declaration in force.
+  data and is never in force.
 - **A change can try to rewrite its own bar.** The declaration and the
   exemptions a change is judged under are the ones in force before it,
   and the known flaws are the base's own findings; its own declaration can only widen (G9, G17). The edit
@@ -659,7 +746,7 @@ checks.
   only from the gate's own run over the base; a report a change's own run
   produced never becomes the base it is judged against.
 - **A change can try to write outside the bar.** A unit the change
-  creates that no declaration covers is a Covered finding, and lowers.
+  creates under a governing declaration that no layer covers is a Covered finding, and lowers.
 - **A change can try to shrink the contract.** Removing a behavior or a
   term from an approved record is a Record kept finding, and lowers.
 - **An unavailable judge never reads as a pass.** A judge that cannot be
@@ -714,6 +801,7 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
 | An owner who is the author | A landing counts as the owner's approval when a code owner approved it in a review, or when a code owner merged the pull request themselves, the owner who authored it included; the report names which counted. A landing attributable to no one but an author who is no code owner stays uncounted, and an author's own review still counts nothing. Amends Approval and the Security Consideration on a change's author; rules, and removes from Open Questions, Q11 | In a repository with one human the owner authors every declaration edit and the code host refuses self-approval, so without this no declaration could ever come into force there: the first live run skipped the landing at 49ba5438ad8c, authored and merged by the owner. Merging is an act of the owner's attributable to the owner, as a review is; a non-owner who merges their own edit is still the author alone | Todd, 2026-11-06, Issue#590 |
 | Wiring's unit in the composition root | In the composition-root layer the unit Wiring counts as a root is the module: one file that constructs concrete adapters in several functions is one root, and two composition-root files that construct them are still the finding, naming the files. Below the root the unit is still the one making the call | A composition root is a file of wiring, and splitting it into a function per stage is how it stays readable; counting its functions made one root read as several, as the self-measurement's Wiring finding on `container.py` was | Todd, 2026-11-06, Issue#590 |
 | One radar, carrying the fleet's packages | The Dependency check keeps reading the one radar the declaration names; a repository whose dependencies the fleet's radar already rings carries a row for each in its own radar, at the fleet's ring, naming the fleet as the source | A second radar read beside the named one would be a second, unreviewed source of rings; the self-measurement's 26 Dependency findings were pytest, hypothesis, Click, boto3 and botocore, each on the fleet's radar and absent from this repository's | Todd, 2026-11-06, Issue#590 |
+| Nested declarations | A repository is declared by one `adherence.toml` at its root, one in each sub-project, or both; each governs its subtree with paths relative to its directory that cannot leave it; the governing declarations of a path are read as one, the union sections as a union, the single-valued sections as the nearest file's, a nearer file replacing a whole section only under `[override]`; a path with no governing declaration has no adherence and is coverage, never a Covered finding; a conflict, an override of nothing, or a plain single-valued section where one is already defined above, is a declaration that cannot be read; the declaration in force is settled per file, a declaration new at the head governs from the next change | The Covered check is tree-wide by design, so one root declaration that names two of a monorepo's packages lowers every change that creates a unit anywhere else, and a sub-project's design record cannot be named by a declaration that names another's; template-tools (PR#1058) could be judged but never gated. A declaration that lands with its sub-project is code-owned with it and names its one record. Scoping Covered to `[runtimes]` was rejected: it keeps the one file and makes the runtime list carry a meaning it was not given | Todd, 2026-11-07, Issue#695 |
 | A record on main is approved | No record carries a status line or a status word: on main it is approved, off main it is not. Where this record says "absent or in draft" (the missing-record behavior, the coverage of Trace, Language, Change, Kept test and Record kept), read "absent or not on main"; `domain/records.py` counts every record at the target revision, which is that rule | A status word in a document is a second source of truth that drifts from the one that matters, the branch; the retrospective's drift walk found the wording and the code apart only in words | Todd, 2026-11-06, Issue#590 |
 | No code scanning upload | The reusable workflow posts no SARIF to code scanning; the judge job keeps the SARIF as a run artifact and the verdict, the log report and the job summary are the whole PR surface. This record names no upload; where the architecture record says the SARIF is uploaded to code scanning and rendered at the line (its workflow row, PR surface row, Credentials row, the `upload-sarif` radar row and the Findings as SARIF decision), read "the findings are in the job summary and the run artifact" | A private repository without GitHub's paid Code Security add-on refuses the upload, and the owner ruled the add-on out, so an upload that failed the call over a cosmetic step (template-tools PR#1058, run 42310085996) would have kept every private consumer out of its gate | Todd, 2026-11-06, PR#694 |
 
@@ -802,6 +890,15 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
   round.
 
 ---
+
+- **One root declaration for a monorepo** -- Covered is tree-wide, so a
+  root file that declares some packages lowers every change that creates
+  a unit in the others, and one file cannot name each package's design
+  record; the declaration lives with the sub-project instead (Key Decisions,
+  Nested declarations).
+- **Scoping Covered to the declared runtimes** -- it would have kept one
+  root file and made `[runtimes]` carry a meaning it was not given; a
+  sub-project's own declaration says the same thing where it belongs.
 
 ## Future Considerations
 

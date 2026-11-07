@@ -87,9 +87,16 @@ scopes_for() {
         dynomark/*) out="dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e" ;;
         chores/*) out="chores" ;;
         adherence/*) out="adherence" ;;
-        adherence.toml | docs/design/*ARCH-ADHERENCE.md | lmde/TECH_RADAR.md) out="adherence" ;;
+        adherence.toml | */adherence.toml | docs/design/*ARCH-ADHERENCE.md | lmde/TECH_RADAR.md) out="adherence" ;;
         .github/workflows/adherence.yml) out="adherence smoketests shellcheck" ;;
         *) is_inert "${file}" || out="smoketests shellcheck" ;;
+    esac
+    # A declaration in any directory is the suite's input, whichever
+    # component's tree it sits in.
+    case "${file}" in
+        adherence.toml | */adherence.toml)
+            case " ${out} " in *" adherence "*) ;; *) out="${out} adherence" ;; esac
+            ;;
     esac
     if is_shell_file "${file}"; then
         out="${out} smoketests"

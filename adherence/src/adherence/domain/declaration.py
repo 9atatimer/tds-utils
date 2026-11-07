@@ -15,7 +15,7 @@ import re
 import tomllib
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import ClassVar
+from typing import ClassVar, TypeVar
 
 from adherence.domain.finding import Finding, Notice
 from adherence.domain.model import Layer, Region
@@ -25,7 +25,18 @@ from adherence.domain.source import source_lines
 
 # --- Constants ---------------------------------------------------------------
 
+# The name of a declaration file; any directory may hold one, and it
+# governs that directory's subtree (DESIGN.ARCH-ADHERENCE.md, The
+# declaration). The root's file is at this path.
 DECLARATION_PATH = "adherence.toml"
+OVERRIDE = "override"
+# The sections one value of which governs a path: the nearest governing
+# file's. Every other section is a union across the governing files.
+SINGLE_VALUED = frozenset({"records", "radar", "limits"})
+ESCAPES = "escapes its directory"
+VOCABULARY_UNION = (
+    "vocabulary cannot be overridden; it is a union across the governing declarations"
+)
 
 TABLES = frozenset(
     {"layers", "runtimes", "records", "radar", "exemptions", "limits", "vocabulary"}
@@ -37,6 +48,8 @@ DECLARED_REFUSAL = "the Declared quality's checks cannot be exempted"
 REGIONS_KEY = "regions"
 LAYER_NAMES = {layer.value: layer for layer in Layer}
 GLOB_CHARACTERS = frozenset("*?[")
+# A glob character escaped as a one-character class: `[[]`, `[*]`, `[?]`.
+ESCAPED = re.compile(r"\[([*?\[])\]")
 # `# --- Action functions ---` (shell, Python) or `// --- Action functions ---`
 # (TypeScript, JavaScript), with any run of trailing dashes.
 SECTION_MARKER = re.compile(r"^\s*(?:#|//)\s*---\s*(?P<name>[^-].*?)\s*-*\s*$")
@@ -79,6 +92,16 @@ class Exemption:
     check: str | None = None
     unit: str | None = None
     finding: str | None = None
+    # The subtree of the file that states it, and the subtrees where a
+    # nearer declaration's [override.exemptions] voids it.
+    within: str = ""
+    outside: tuple[str, ...] = ()
+
+    def reaches(self, path: str) -> bool:
+        """Whether the exemption applies at the path at all."""
+        return is_under(path, self.within) and not any(
+            is_under(path, d) for d in self.outside
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +123,9 @@ class Layers:
     regions: tuple[Region, ...] = ()
     marker_files: tuple[str, ...] = ()
     widened: tuple[tuple[Layer, str], ...] = ()
+    # (index into globs, subtree): the glob does not apply in the subtree,
+    # where a nearer declaration's [override.layers] replaces the section.
+    voided: tuple[tuple[int, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,12 +154,22 @@ class Runtime:
 
     name: str
     patterns: tuple[str, ...]
+    # The declaration file that declares it, and the subtrees where a
+    # nearer declaration's [override.runtimes] voids it.
+    source: str = DECLARATION_PATH
+    outside: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class Declaration:
     """A repository's statement of its layers, runtimes, records, radar and
-    exemptions. Declaration.none is the value for a repository that has none.
+    exemptions: its governing declarations read as one, every path
+    repository-root-relative. `governed` names the directory of each file
+    ("" for the root's); a path under none of them is an undeclared
+    subtree. `records` and `radar` are the root's; `record_scopes` and
+    `radar_scopes` hold each nearer file's, by its directory, and the
+    nearest governing one applies to a path. Declaration.none is the value
+    for a repository that has none in force anywhere.
     """
 
     declared: bool = True
@@ -144,11 +180,62 @@ class Declaration:
     records: RecordPaths | None = None
     radar: str | None = None
     runtimes: tuple[Runtime, ...] = ()
+    governed: tuple[str, ...] = ("",)
+    record_scopes: tuple[tuple[str, RecordPaths], ...] = ()
+    radar_scopes: tuple[tuple[str, str], ...] = ()
+    # One file read on its own: the sections it defines plainly and those
+    # it writes under [override]; empty once files are read as one.
+    defines: frozenset[str] = frozenset()
+    overrides: frozenset[str] = frozenset()
 
     none: ClassVar[Declaration]
 
+    @property
+    def directory(self) -> str:
+        """The directory of the first file it governs from ("" the root's)."""
+        return self.governed[0] if self.governed else ""
 
-Declaration.none = Declaration(declared=False)
+    @property
+    def path(self) -> str:
+        """The declaration file it was read from, for one file."""
+        return _under(self.directory, DECLARATION_PATH)
+
+    def has(self, section: str) -> bool:
+        """Whether the file states the section, plainly or overriding."""
+        return section in self.defines or section in self.overrides
+
+    def governs(self, path: str) -> bool:
+        """Whether a governing declaration reaches the path."""
+        return any(is_under(path, directory) for directory in self.governed)
+
+    def records_for(self, path: str) -> RecordPaths | None:
+        """The design records the nearest governing file naming them names."""
+        return _nearest(path, self.record_scopes, self.records)
+
+    def radar_for(self, path: str) -> str | None:
+        """The radar the nearest governing file naming one names."""
+        return _nearest(path, self.radar_scopes, self.radar)
+
+
+Declaration.none = Declaration(declared=False, governed=())
+
+
+Scoped = TypeVar("Scoped")
+
+
+def is_under(path: str, directory: str) -> bool:
+    """Whether a repository path is in a directory's subtree ("" is the
+    root's)."""
+    return directory == "" or path.startswith(f"{directory}/")
+
+
+def _nearest(
+    path: str, scopes: Sequence[tuple[str, Scoped]], root: Scoped | None
+) -> Scoped | None:
+    found = [(len(d), value) for d, value in scopes if is_under(path, d)]
+    if not found:
+        return root
+    return max(found, key=lambda hit: hit[0])[1]
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,9 +302,22 @@ class ReviewsUnavailable:
 # --- Predicates --------------------------------------------------------------
 
 
+def literal_form(pattern: str) -> str:
+    """The pattern with each escaped glob character (`[[]`, `[*]`, `[?]`)
+    read as the character itself."""
+    return ESCAPED.sub(lambda m: m.group(1), pattern)
+
+
 def is_literal(pattern: str) -> bool:
-    """Whether a layer pattern names one path rather than a glob."""
-    return not GLOB_CHARACTERS & set(pattern)
+    """Whether a layer pattern names one path rather than a glob: no glob
+    character once its escaped ones are read as themselves."""
+    return not GLOB_CHARACTERS & set(ESCAPED.sub("", pattern))
+
+
+def escaped(directory: str) -> str:
+    """A directory as a glob that matches only itself: each glob character
+    in it bracketed."""
+    return "".join(f"[{c}]" if c in GLOB_CHARACTERS else c for c in directory)
 
 
 def matches(pattern: str, path: str) -> bool:
@@ -299,20 +399,25 @@ def layer_of(
     for layer, created in declaration.layers.widened:
         if created == path:
             return layer
+    voided = {
+        index for index, subtree in declaration.layers.voided if is_under(path, subtree)
+    }
     hits = [
-        (is_literal(pattern), len(pattern), layer)
-        for layer, pattern in declaration.layers.globs
-        if matches(pattern, path)
+        (is_literal(pattern), len(literal_form(pattern)), layer)
+        for index, (layer, pattern) in enumerate(declaration.layers.globs)
+        if index not in voided and matches(pattern, path)
     ]
     if not hits:
         return None
     return max(hits, key=lambda hit: (hit[0], hit[1]))[2]
 
 
-def _region(entry: object, number: int) -> Region | str | DeclarationUnreadable:
+def _region(
+    entry: object, number: int, name: str
+) -> Region | str | DeclarationUnreadable:
     """One regions entry: a Region by lines, the path of a marker file, or
     why it cannot be read."""
-    where = f"{DECLARATION_PATH}: layers region {number}"
+    where = f"{name}: layers region {number}"
     if not isinstance(entry, dict) or not isinstance(entry.get("file"), str):
         return DeclarationUnreadable(f"{where} names no file")
     unknown = sorted(set(entry) - {"file", "layer", "lines"})
@@ -338,20 +443,18 @@ def _region(entry: object, number: int) -> Region | str | DeclarationUnreadable:
     return Region(str(entry["file"]), lines[0], lines[1], layer)
 
 
-def _layers(value: object) -> Layers | DeclarationUnreadable:
+def _layers(value: object, name: str) -> Layers | DeclarationUnreadable:
     if not isinstance(value, dict):
-        return DeclarationUnreadable(f"{DECLARATION_PATH}: layers is a table")
+        return DeclarationUnreadable(f"{name}: layers is a table")
     globs: list[tuple[Layer, str]] = []
     regions: list[Region] = []
     marker_files: list[str] = []
     for key, patterns in value.items():
         if key == REGIONS_KEY:
             if not isinstance(patterns, list):
-                return DeclarationUnreadable(
-                    f"{DECLARATION_PATH}: layers.regions is a list"
-                )
+                return DeclarationUnreadable(f"{name}: layers.regions is a list")
             for number, entry in enumerate(patterns, start=1):
-                region = _region(entry, number)
+                region = _region(entry, number, name)
                 if isinstance(region, DeclarationUnreadable):
                     return region
                 if isinstance(region, Region):
@@ -361,12 +464,12 @@ def _layers(value: object) -> Layers | DeclarationUnreadable:
             continue
         layer = LAYER_NAMES.get(key)
         if layer is None:
-            return DeclarationUnreadable(f"{DECLARATION_PATH}: {key} is not a layer")
+            return DeclarationUnreadable(f"{name}: {key} is not a layer")
         if not isinstance(patterns, list) or not all(
             isinstance(p, str) for p in patterns
         ):
             return DeclarationUnreadable(
-                f"{DECLARATION_PATH}: layers.{key} is a list of path patterns"
+                f"{name}: layers.{key} is a list of path patterns"
             )
         globs.extend((layer, pattern) for pattern in patterns)
     return Layers(tuple(globs), tuple(regions), tuple(marker_files))
@@ -377,9 +480,11 @@ def _text_field(entry: Mapping[str, object], key: str) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _exemption(entry: object, number: int) -> Exemption | DeclarationUnreadable:
+def _exemption(
+    entry: object, number: int, name: str
+) -> Exemption | DeclarationUnreadable:
     """One [[exemptions]] entry, or why it cannot be read."""
-    where = f"{DECLARATION_PATH}: exemption {number}"
+    where = f"{name}: exemption {number}"
     if not isinstance(entry, dict):
         return DeclarationUnreadable(f"{where} is not a table")
     unknown = sorted(set(entry) - EXEMPTION_KEYS)
@@ -406,14 +511,16 @@ def _exemption(entry: object, number: int) -> Exemption | DeclarationUnreadable:
     return Exemption(reason=reason, check=check, unit=unit, finding=finding)
 
 
-def _exemptions(value: object) -> tuple[Exemption, ...] | DeclarationUnreadable:
+def _exemptions(
+    value: object, name: str
+) -> tuple[Exemption, ...] | DeclarationUnreadable:
     if not isinstance(value, list):
         return DeclarationUnreadable(
-            f"{DECLARATION_PATH}: exemptions is an array of tables ([[exemptions]])"
+            f"{name}: exemptions is an array of tables ([[exemptions]])"
         )
     parsed: list[Exemption] = []
     for number, entry in enumerate(value, start=1):
-        exemption = _exemption(entry, number)
+        exemption = _exemption(entry, number, name)
         if isinstance(exemption, DeclarationUnreadable):
             return exemption
         parsed.append(exemption)
@@ -433,10 +540,12 @@ def _vocabulary_regions(value: object) -> tuple[tuple[str, Layer], ...] | str:
     return tuple(regions)
 
 
-def _vocabulary(value: object) -> VocabularyExtension | DeclarationUnreadable:
+def _vocabulary(
+    value: object, name: str
+) -> VocabularyExtension | DeclarationUnreadable:
     """The [vocabulary] table, or why it cannot be read."""
     if not isinstance(value, dict):
-        return DeclarationUnreadable(f"{DECLARATION_PATH}: vocabulary is a table")
+        return DeclarationUnreadable(f"{name}: vocabulary is a table")
     words: list[tuple[str, tuple[str, ...]]] = []
     regions: tuple[tuple[str, Layer], ...] = ()
     refused: list[str] = []
@@ -444,18 +553,14 @@ def _vocabulary(value: object) -> VocabularyExtension | DeclarationUnreadable:
         if key == REGIONS_KEY:
             found = _vocabulary_regions(entry)
             if isinstance(found, str):
-                return DeclarationUnreadable(f"{DECLARATION_PATH}: {found}")
+                return DeclarationUnreadable(f"{name}: {found}")
             regions = found
         elif key not in WORD_SETS:
-            return DeclarationUnreadable(
-                f"{DECLARATION_PATH}: vocabulary.{key} is no vocabulary"
-            )
+            return DeclarationUnreadable(f"{name}: vocabulary.{key} is no vocabulary")
         elif not isinstance(entry, list) or not all(
             isinstance(word, str) and word for word in entry
         ):
-            return DeclarationUnreadable(
-                f"{DECLARATION_PATH}: vocabulary.{key} is a list of words"
-            )
+            return DeclarationUnreadable(f"{name}: vocabulary.{key} is a list of words")
         elif key not in FINDING_SETS:
             refused.append(key)
         else:
@@ -486,56 +591,54 @@ def with_overrides(parameters: Parameters, declaration: Declaration) -> Paramete
     )
 
 
-def _records(value: object) -> RecordPaths | DeclarationUnreadable:
+def _records(value: object, name: str) -> RecordPaths | DeclarationUnreadable:
     """The [records] table, or why it cannot be read: it names both records,
     each by a path, and nothing else."""
     if not isinstance(value, dict):
-        return DeclarationUnreadable(f"{DECLARATION_PATH}: records is a table")
+        return DeclarationUnreadable(f"{name}: records is a table")
     unknown = sorted(set(value) - set(RECORD_KEYS))
     if unknown:
         return DeclarationUnreadable(
-            f"{DECLARATION_PATH}: records has unknown key(s): {', '.join(unknown)}"
+            f"{name}: records has unknown key(s): {', '.join(unknown)}"
         )
     if not all(_text_field(value, key) for key in RECORD_KEYS):
         return DeclarationUnreadable(
-            f"{DECLARATION_PATH}: records names the design and the architecture "
+            f"{name}: records names the design and the architecture "
             "record, each by a path"
         )
     return RecordPaths(design=value["design"], architecture=value["architecture"])
 
 
-def _radar(value: object) -> str | DeclarationUnreadable:
+def _radar(value: object, name: str) -> str | DeclarationUnreadable:
     """The [radar] table, or why it cannot be read: it names the radar by
     one path, and nothing else."""
     if not isinstance(value, dict):
-        return DeclarationUnreadable(f"{DECLARATION_PATH}: radar is a table")
+        return DeclarationUnreadable(f"{name}: radar is a table")
     unknown = sorted(set(value) - {RADAR_KEY})
     if unknown:
         return DeclarationUnreadable(
-            f"{DECLARATION_PATH}: radar has unknown key(s): {', '.join(unknown)}"
+            f"{name}: radar has unknown key(s): {', '.join(unknown)}"
         )
     path = _text_field(value, RADAR_KEY)
     if path is None:
-        return DeclarationUnreadable(
-            f"{DECLARATION_PATH}: radar names the radar by a path"
-        )
+        return DeclarationUnreadable(f"{name}: radar names the radar by a path")
     return path
 
 
-def _runtimes(value: object) -> tuple[Runtime, ...] | DeclarationUnreadable:
+def _runtimes(value: object, name: str) -> tuple[Runtime, ...] | DeclarationUnreadable:
     """The [runtimes] table, or why it cannot be read: each runtime names a
     list of path patterns."""
     if not isinstance(value, dict):
-        return DeclarationUnreadable(f"{DECLARATION_PATH}: runtimes is a table")
+        return DeclarationUnreadable(f"{name}: runtimes is a table")
     runtimes: list[Runtime] = []
-    for name, patterns in value.items():
+    for runtime, patterns in value.items():
         if not isinstance(patterns, list) or not all(
             isinstance(p, str) for p in patterns
         ):
             return DeclarationUnreadable(
-                f"{DECLARATION_PATH}: runtimes.{name} is a list of path patterns"
+                f"{name}: runtimes.{runtime} is a list of path patterns"
             )
-        runtimes.append(Runtime(name, tuple(patterns)))
+        runtimes.append(Runtime(runtime, tuple(patterns)))
     return tuple(runtimes)
 
 
@@ -553,7 +656,11 @@ def widened(
     taken, so it can only add checks."""
     if not in_force.declared or not isinstance(proposed, Declaration):
         return in_force
-    uncovered = [p for p in sorted(created) if layer_of(p, None, in_force) is None]
+    uncovered = [
+        p
+        for p in sorted(created)
+        if in_force.governs(p) and layer_of(p, None, in_force) is None
+    ]
     paths = tuple(
         (layer, path)
         for path in uncovered
@@ -564,11 +671,11 @@ def widened(
     layers = in_force.layers
     return replace(
         in_force,
-        layers=Layers(
-            layers.globs,
-            (*layers.regions, *regions),
-            (*layers.marker_files, *markers),
-            (*layers.widened, *paths),
+        layers=replace(
+            layers,
+            regions=(*layers.regions, *regions),
+            marker_files=(*layers.marker_files, *markers),
+            widened=(*layers.widened, *paths),
         ),
     )
 
@@ -581,11 +688,14 @@ def _silencing(finding: Finding, declaration: Declaration) -> Exemption | None:
         (
             e
             for e in declaration.exemptions
-            if e.finding == finding.identity
-            or (
-                e.check == finding.check.name
-                and e.unit is not None
-                and matches(e.unit, finding.unit.path)
+            if e.reaches(finding.unit.path)
+            and (
+                e.finding == finding.identity
+                or (
+                    e.check == finding.check.name
+                    and e.unit is not None
+                    and matches(e.unit, finding.unit.path)
+                )
             )
         ),
         None,
@@ -637,44 +747,186 @@ def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:
     )
 
 
-def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
-    """The Declaration that adherence.toml's bytes state, or why they cannot
-    be read."""
+def directory_of(path: str) -> str:
+    """The directory holding a repository path; "" for the root."""
+    return path.rpartition("/")[0]
+
+
+def is_test_data(path: str, above: Sequence[Declaration]) -> bool:
+    """Whether a file named like a declaration is test data: a declaration
+    above it, already read, assigns its path to the test layer. It is then
+    never a declaration -- not discovered, settled, merged or a notice."""
+    directory = directory_of(path)
+    return any(
+        d.directory != directory
+        and is_under(directory, d.directory)
+        and layer_of(path, None, d) is Layer.TEST
+        for d in above
+    )
+
+
+def depth_first(paths: Collection[str]) -> list[str]:
+    """Declaration paths root first, then by depth, then by name: the order
+    in which a file's declarations above it are read before it."""
+    return sorted(paths, key=lambda p: (p.count("/"), p))
+
+
+def escapes(path: str) -> bool:
+    """Whether a path a declaration names leaves the declaration's
+    directory: a leading slash, or any `..` segment."""
+    return path.startswith("/") or ".." in path.split("/")
+
+
+def _under(directory: str, path: str) -> str:
+    """A path a file names, literally, under the file's directory."""
+    return f"{directory}/{path}" if directory else path
+
+
+def _glob_under(directory: str, pattern: str) -> str:
+    """A glob a file names, under the file's directory read literally: the
+    directory's own glob characters escaped, so the glob can only match
+    under that directory."""
+    return f"{escaped(directory)}/{pattern}" if directory else pattern
+
+
+def _moved(exemption: Exemption, directory: str) -> Exemption:
+    """An exemption of a file in the directory: its unit glob resolved
+    under it, and applying only within it."""
+    unit = exemption.unit
+    return replace(
+        exemption,
+        unit=_glob_under(directory, unit) if unit is not None else None,
+        within=directory,
+    )
+
+
+def _named_paths(declaration: Declaration) -> tuple[str, ...]:
+    """Every path or glob a declaration names, as written."""
+    layers = declaration.layers
+    exemptions = (
+        *declaration.exemptions,
+        *(r.exemption for r in declaration.refused_exemptions),
+    )
+    records = declaration.records
+    return (
+        *(p for _, p in layers.globs),
+        *(r.path for r in layers.regions),
+        *layers.marker_files,
+        *(p for r in declaration.runtimes for p in r.patterns),
+        *(e.unit for e in exemptions if e.unit is not None),
+        *((records.design, records.architecture) if records else ()),
+        *((declaration.radar,) if declaration.radar else ()),
+    )
+
+
+def _moved_layers(layers: Layers, directory: str) -> Layers:
+    return Layers(
+        tuple((layer, _glob_under(directory, p)) for layer, p in layers.globs),
+        tuple(replace(r, path=_under(directory, r.path)) for r in layers.regions),
+        tuple(_under(directory, p) for p in layers.marker_files),
+    )
+
+
+def _moved_records(records: RecordPaths | None, directory: str) -> RecordPaths | None:
+    if records is None:
+        return None
+    return RecordPaths(
+        _under(directory, records.design), _under(directory, records.architecture)
+    )
+
+
+def _relocated(
+    declaration: Declaration, directory: str, name: str
+) -> Declaration | DeclarationUnreadable:
+    """The declaration with every path it names resolved under its file's
+    directory, or why one escapes it."""
+    escaping = next((p for p in _named_paths(declaration) if escapes(p)), None)
+    if escaping is not None:
+        return DeclarationUnreadable(f"{name}: {escaping} {ESCAPES}")
+    radar = declaration.radar
+    return replace(
+        declaration,
+        layers=_moved_layers(declaration.layers, directory),
+        exemptions=tuple(_moved(e, directory) for e in declaration.exemptions),
+        refused_exemptions=tuple(
+            replace(r, exemption=_moved(r.exemption, directory))
+            for r in declaration.refused_exemptions
+        ),
+        records=_moved_records(declaration.records, directory),
+        radar=_under(directory, radar) if radar else None,
+        runtimes=tuple(
+            Runtime(r.name, tuple(_glob_under(directory, p) for p in r.patterns), name)
+            for r in declaration.runtimes
+        ),
+        governed=(directory,),
+    )
+
+
+def _document(text: bytes, name: str) -> dict[str, object] | DeclarationUnreadable:
     try:
-        document = tomllib.loads(text.decode("utf-8"))
+        return tomllib.loads(text.decode("utf-8"))
     except UnicodeDecodeError as error:
-        return DeclarationUnreadable(f"{DECLARATION_PATH} is not utf-8: {error}")
+        return DeclarationUnreadable(f"{name} is not utf-8: {error}")
     except tomllib.TOMLDecodeError as error:
-        return DeclarationUnreadable(f"{DECLARATION_PATH}: {error}")
+        return DeclarationUnreadable(f"{name}: {error}")
     except ValueError as error:
         # tomllib's own conversions (an integer past Python's digit limit)
         # raise a plain ValueError rather than TOMLDecodeError.
-        return DeclarationUnreadable(f"{DECLARATION_PATH}: {error}")
+        return DeclarationUnreadable(f"{name}: {error}")
     except RecursionError:
         return DeclarationUnreadable(
-            f"{DECLARATION_PATH} is nested deeper than the parser can follow"
+            f"{name} is nested deeper than the parser can follow"
         )
-    unknown = sorted(set(document) - TABLES)
+
+
+def _sections(
+    document: Mapping[str, object], name: str
+) -> tuple[dict[str, object], frozenset[str], frozenset[str]] | DeclarationUnreadable:
+    """The file's sections, plain and under [override], as one table; and
+    which it defines and which it overrides."""
+    unknown = sorted(set(document) - TABLES - {OVERRIDE})
+    if unknown:
+        return DeclarationUnreadable(f"{name}: unknown table(s): {', '.join(unknown)}")
+    overriding = document.get(OVERRIDE, {})
+    if not isinstance(overriding, dict):
+        return DeclarationUnreadable(f"{name}: override is a table of sections")
+    unknown = sorted(set(overriding) - TABLES)
     if unknown:
         return DeclarationUnreadable(
-            f"{DECLARATION_PATH}: unknown table(s): {', '.join(unknown)}"
+            f"{name}: unknown override section(s): {', '.join(unknown)}"
         )
-    layers = _layers(document.get("layers", {}))
+    if "vocabulary" in overriding:
+        return DeclarationUnreadable(f"{name}: {VOCABULARY_UNION}")
+    both = sorted(set(overriding) & set(document))
+    if both:
+        return DeclarationUnreadable(
+            f"{name}: [{both[0]}] is both defined and overridden; write one"
+        )
+    defines = frozenset(set(document) - {OVERRIDE})
+    sections = {**{k: v for k, v in document.items() if k != OVERRIDE}, **overriding}
+    return sections, defines, frozenset(overriding)
+
+
+def _stated(
+    sections: Mapping[str, object], name: str
+) -> Declaration | DeclarationUnreadable:
+    """What one file's sections state, its paths as written."""
+    layers = _layers(sections.get("layers", {}), name)
     if isinstance(layers, DeclarationUnreadable):
         return layers
-    exemptions = _exemptions(document.get("exemptions", []))
+    exemptions = _exemptions(sections.get("exemptions", []), name)
     if isinstance(exemptions, DeclarationUnreadable):
         return exemptions
-    vocabulary = _vocabulary(document.get("vocabulary", {}))
+    vocabulary = _vocabulary(sections.get("vocabulary", {}), name)
     if isinstance(vocabulary, DeclarationUnreadable):
         return vocabulary
-    records = _records(document["records"]) if "records" in document else None
+    records = _records(sections["records"], name) if "records" in sections else None
     if isinstance(records, DeclarationUnreadable):
         return records
-    radar = _radar(document["radar"]) if "radar" in document else None
+    radar = _radar(sections["radar"], name) if "radar" in sections else None
     if isinstance(radar, DeclarationUnreadable):
         return radar
-    runtimes = _runtimes(document.get("runtimes", {}))
+    runtimes = _runtimes(sections.get("runtimes", {}), name)
     if isinstance(runtimes, DeclarationUnreadable):
         return runtimes
     return Declaration(
@@ -690,6 +942,252 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
         radar=radar,
         runtimes=runtimes,
     )
+
+
+def parse_file(path: str, text: bytes) -> Declaration | DeclarationUnreadable:
+    """One adherence.toml's bytes, read on their own: what they state with
+    every path resolved under the file's directory, or why they cannot be
+    read."""
+    document = _document(text, path)
+    if isinstance(document, DeclarationUnreadable):
+        return document
+    sections = _sections(document, path)
+    if isinstance(sections, DeclarationUnreadable):
+        return sections
+    table, defines, overrides = sections
+    stated = _stated(table, path)
+    if isinstance(stated, DeclarationUnreadable):
+        return stated
+    relocated = _relocated(stated, directory_of(path), path)
+    if isinstance(relocated, DeclarationUnreadable):
+        return relocated
+    return replace(relocated, defines=defines, overrides=overrides)
+
+
+def parse_declaration(
+    text: bytes, directory: str = ""
+) -> Declaration | DeclarationUnreadable:
+    """The Declaration one adherence.toml's bytes state, the file in the
+    directory given, read as its own governing declarations; or why they
+    cannot be read."""
+    parsed = parse_file(_under(directory, DECLARATION_PATH), text)
+    if isinstance(parsed, DeclarationUnreadable):
+        return parsed
+    return governing_declarations((parsed,), ())
+
+
+# --- Governing declarations: the files read as one ---------------------------
+
+
+def _depth(file: Declaration) -> tuple[int, str]:
+    directory = file.directory
+    return (directory.count("/") + 1 if directory else 0, file.path)
+
+
+def _above(file: Declaration, files: Sequence[Declaration]) -> list[Declaration]:
+    """The files governing the file's directory from above, nearest first."""
+    return sorted(
+        (
+            f
+            for f in files
+            if f.directory != file.directory and is_under(file.directory, f.directory)
+        ),
+        key=_depth,
+        reverse=True,
+    )
+
+
+def _illegal(files: Sequence[Declaration]) -> DeclarationUnreadable | None:
+    """The first section a file defines that a file above already defines,
+    for a single-valued section, or overrides where nothing above defines
+    it."""
+    for file in files:
+        above = _above(file, files)
+        for section in sorted(file.defines & SINGLE_VALUED):
+            first = next((f for f in above if f.has(section)), None)
+            if first is not None:
+                return DeclarationUnreadable(
+                    f"{first.path} and {file.path} both define [{section}]: a "
+                    f"nearer declaration replaces it only under [override.{section}]"
+                )
+        for section in sorted(file.overrides):
+            if not any(f.has(section) for f in above):
+                return DeclarationUnreadable(
+                    f"{file.path}: [override.{section}] overrides nothing: no "
+                    f"declaration above it defines [{section}]"
+                )
+    return None
+
+
+def _voiding(
+    file: Declaration, section: str, files: Sequence[Declaration]
+) -> tuple[str, ...]:
+    """The subtrees below the file where a nearer file overrides the
+    section, so the file's entries for it do not apply there."""
+    return tuple(
+        f.directory
+        for f in files
+        if section in f.overrides
+        and f.directory != file.directory
+        and is_under(f.directory, file.directory)
+    )
+
+
+def _merged_exemptions(exemptions: Sequence[Exemption]) -> tuple[Exemption, ...]:
+    """One exemption per thing exempted: the same one from two files is one
+    carrying both reasons, applying wherever either does."""
+    merged: dict[tuple[str | None, str | None, str | None], Exemption] = {}
+    for e in exemptions:
+        key = (e.check, e.unit, e.finding)
+        kept = merged.get(key)
+        if kept is None:
+            merged[key] = e
+            continue
+        shallower = min((kept.within, e.within), key=len)
+        merged[key] = replace(
+            kept,
+            reason=kept.reason
+            if e.reason == kept.reason
+            else f"{kept.reason}; {e.reason}",
+            within=shallower,
+            outside=tuple(d for d in kept.outside if d in e.outside),
+        )
+    return tuple(merged.values())
+
+
+def _layers_merged(files: Sequence[Declaration]) -> Layers:
+    globs: list[tuple[Layer, str]] = []
+    voided: list[tuple[int, str]] = []
+    regions: list[Region] = []
+    markers: list[str] = []
+    for file in files:
+        layers = file.layers
+        cut = _voiding(file, "layers", files)
+        for glob in layers.globs:
+            voided.extend((len(globs), d) for d in cut)
+            globs.append(glob)
+        regions.extend(
+            r for r in layers.regions if not any(is_under(r.path, d) for d in cut)
+        )
+        markers.extend(
+            p for p in layers.marker_files if not any(is_under(p, d) for d in cut)
+        )
+    return Layers(tuple(globs), tuple(regions), tuple(markers), (), tuple(voided))
+
+
+def _vocabulary_merged(files: Sequence[Declaration]) -> VocabularyExtension:
+    extensions = [f.vocabulary for f in files]
+    return VocabularyExtension(
+        tuple(w for e in extensions for w in e.words),
+        tuple(r for e in extensions for r in e.regions),
+        tuple(dict.fromkeys(k for e in extensions for k in e.refused)),
+    )
+
+
+def _assigned(path: str, file: Declaration) -> frozenset[Layer]:
+    """The layers one file assigns a real path by its own precedence: its
+    regions of the file, else its glob or literal assignment."""
+    regions = frozenset(r.layer for r in file.layers.regions if r.path == path)
+    if regions:
+        return regions
+    layer = layer_of(path, None, file)
+    return frozenset() if layer is None else frozenset({layer})
+
+
+def _conflict(
+    files: Sequence[Declaration], tree: Collection[str]
+) -> DeclarationUnreadable | None:
+    """The first real path two governing files place in two layers, with
+    no [override.layers] between them. Only a path two or more files
+    govern can conflict, so only the subtrees of files with a file above
+    them are scanned, never a path the outermost file alone governs."""
+    nested = [f.directory for f in files if _above(f, files)]
+    for path in sorted(tree):
+        if not any(is_under(path, directory) for directory in nested):
+            continue
+        governing = sorted(
+            (f for f in files if is_under(path, f.directory)), key=_depth
+        )
+        cut = [f for f in governing if "layers" in f.overrides]
+        if cut:
+            governing = governing[governing.index(cut[-1]) :]
+        placed = [(f, layers) for f in governing if (layers := _assigned(path, f))]
+        for (first, one), (second, other) in itertools.combinations(placed, 2):
+            if one != other:
+                return DeclarationUnreadable(
+                    f"{first.path} and {second.path} place {path} in two layers "
+                    f"([layers]): {_named(one)} and {_named(other)}"
+                )
+    return None
+
+
+def _named(layers: frozenset[Layer]) -> str:
+    return ", ".join(sorted(layer.value for layer in layers))
+
+
+def _record_scopes(
+    ordered: Sequence[Declaration],
+) -> tuple[tuple[str, RecordPaths], ...]:
+    return tuple(
+        (f.directory, records)
+        for f in ordered
+        if f.directory and (records := f.records) is not None
+    )
+
+
+def _radar_scopes(ordered: Sequence[Declaration]) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (f.directory, radar)
+        for f in ordered
+        if f.directory and (radar := f.radar) is not None
+    )
+
+
+def _read_as_one(ordered: Sequence[Declaration]) -> Declaration:
+    """Files with no conflict among them, root first, merged."""
+    root = next((f for f in ordered if f.directory == ""), Declaration(records=None))
+    return Declaration(
+        layers=_layers_merged(ordered),
+        exemptions=_merged_exemptions(
+            [
+                replace(e, outside=_voiding(f, "exemptions", ordered))
+                for f in ordered
+                for e in f.exemptions
+            ]
+        ),
+        refused_exemptions=tuple(r for f in ordered for r in f.refused_exemptions),
+        vocabulary=_vocabulary_merged(ordered),
+        records=root.records,
+        radar=root.radar,
+        runtimes=tuple(
+            replace(r, outside=_voiding(f, "runtimes", ordered))
+            for f in ordered
+            for r in f.runtimes
+        ),
+        governed=tuple(f.directory for f in ordered),
+        record_scopes=_record_scopes(ordered),
+        radar_scopes=_radar_scopes(ordered),
+    )
+
+
+def governing_declarations(
+    files: Sequence[Declaration], tree: Collection[str]
+) -> Declaration | DeclarationUnreadable:
+    """The declaration files read as one (DESIGN.ARCH-ADHERENCE.md, The
+    declaration): layers, runtimes, exemptions and vocabulary a union, each
+    file's entries void below a nearer file that overrides the section; a
+    single-valued section the nearest governing file's that names it. A
+    file that defines a single-valued section a file above it defines, an
+    override of nothing, and two files that place one real path of `tree`
+    in two layers are each a declaration that cannot be read, naming the
+    files. No files is Declaration.none."""
+    if not files:
+        return Declaration.none
+    ordered = sorted(files, key=_depth)
+    refused = _illegal(ordered) or (
+        _conflict(ordered, tree) if len(ordered) > 1 else None
+    )
+    return refused if refused is not None else _read_as_one(ordered)
 
 
 # --- The declaration in force: approval counting -----------------------------
@@ -743,6 +1241,7 @@ class LandedRevision:
     answer: Landing | NoLandingPR | Unknown | ReviewsUnavailable
     text: DeclarationText = None
     reviewed: tuple[tuple[str, DeclarationText], ...] = ()
+    path: str = DECLARATION_PATH
 
 
 @dataclass(frozen=True, slots=True)
@@ -803,7 +1302,7 @@ def _short(commit: str) -> str:
 
 def _skipped(revision: LandedRevision, why: str) -> Notice:
     return Notice(
-        f"{DECLARATION_PATH} landed at {_short(revision.commit)}: {why}; not in force"
+        f"{revision.path} landed at {_short(revision.commit)}: {why}; not in force"
     )
 
 
@@ -818,21 +1317,21 @@ def _refusal(
     if is_same_login(approval.reviewer, author):
         return AUTHOR_REFUSAL
     if not any(is_same_login(f"@{approval.reviewer}", o) for o in owners):
-        return f"not a code owner of {DECLARATION_PATH} by the base's CODEOWNERS"
+        return f"not a code owner of {revision.path} by the base's CODEOWNERS"
     landed = revision.text
     text = dict(revision.reviewed).get(
         approval.commit, DeclarationUnreadable("not read")
     )
     if isinstance(landed, DeclarationUnreadable):
-        return f"the landed {DECLARATION_PATH} cannot be read: {landed.reason}"
+        return f"the landed {revision.path} cannot be read: {landed.reason}"
     if isinstance(text, DeclarationUnreadable):
         return (
-            f"the {DECLARATION_PATH} it reviewed at {_short(approval.commit)} "
+            f"the {revision.path} it reviewed at {_short(approval.commit)} "
             f"cannot be read: {text.reason}"
         )
     if text != landed:
         return (
-            f"it reviewed {_short(approval.commit)}, whose {DECLARATION_PATH} "
+            f"it reviewed {_short(approval.commit)}, whose {revision.path} "
             "differs from the landed one"
         )
     return None
@@ -843,32 +1342,33 @@ def _in_force(revision: LandedRevision, why: str) -> Counting:
         True,
         (
             Notice(
-                f"{DECLARATION_PATH} landed at {_short(revision.commit)}: "
-                f"in force, {why}"
+                f"{revision.path} landed at {_short(revision.commit)}: in force, {why}"
             ),
         ),
     )
 
 
-def _merge_refusal(merger: str, owners: Collection[str]) -> Notice | None:
+def _merge_refusal(merger: str, owners: Collection[str], path: str) -> Notice | None:
     """Why a merge does not count, or None when it does: its merger is a
-    user code owner of adherence.toml by the base's CODEOWNERS."""
+    user code owner of the declaration file by the base's CODEOWNERS."""
     if any(is_same_login(f"@{merger}", o) for o in owners):
         return None
     return Notice(
-        f"merge by {merger} not counted: not a code owner of {DECLARATION_PATH} "
+        f"merge by {merger} not counted: not a code owner of {path} "
         "by the base's CODEOWNERS"
     )
 
 
-def owner_notices(codeowners: CodeOwners) -> tuple[Notice, ...]:
-    """A notice per owner CODEOWNERS names for adherence.toml that is a team
-    or an email: it counts as no owner, since only a user is one. It is
-    about the file, so a walk says it once, not once per landing."""
-    owners = codeowners.owners_of(DECLARATION_PATH)
+def owner_notices(
+    codeowners: CodeOwners, path: str = DECLARATION_PATH
+) -> tuple[Notice, ...]:
+    """A notice per owner CODEOWNERS names for a declaration file that is a
+    team or an email: it counts as no owner, since only a user is one. It
+    is about the file, so a walk says it once, not once per landing."""
+    owners = codeowners.owners_of(path)
     return tuple(
         Notice(
-            f"CODEOWNERS entry {owner} for {DECLARATION_PATH} counts as no owner: "
+            f"CODEOWNERS entry {owner} for {path} counts as no owner: "
             "only a user (@login) is an owner, never a team or an email"
         )
         for owner in owners
@@ -908,7 +1408,7 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
                 ),
             ),
         )
-    owners = codeowners.owners_of(DECLARATION_PATH)
+    owners = codeowners.owners_of(revision.path)
     users = tuple(o for o in owners if is_user_owner(o))
     refusals = [
         (
@@ -921,7 +1421,9 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
     if counted is not None:
         return _in_force(revision, f"approved by {counted.reviewer}")
     merge = (
-        None if answer.merged_by is None else _merge_refusal(answer.merged_by, users)
+        None
+        if answer.merged_by is None
+        else _merge_refusal(answer.merged_by, users, revision.path)
     )
     if answer.merged_by is not None and merge is None:
         return _in_force(revision, f"merged by code owner {answer.merged_by}")

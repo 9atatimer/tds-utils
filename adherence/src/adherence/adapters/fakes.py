@@ -11,6 +11,7 @@ from dataclasses import replace
 
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
+    DECLARATION_PATH,
     Declaration,
     Landing,
     NoLandingPR,
@@ -60,7 +61,8 @@ class FakeRepository:
     one come with the same bytes is a rename. Its clock is frozen at `now`,
     the epoch unless the test sets it, so a deadline at or before it has
     passed and every method answers TimedOut. `asked` lists every call, by
-    method and target, in order."""
+    method and target, in order. `unfound_at` scripts the answer to `find`
+    at a target."""
 
     def __init__(
         self,
@@ -69,9 +71,11 @@ class FakeRepository:
         unlisted: Refused | TimedOut | None = None,
         unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
         history: Mapping[str, tuple[str, ...] | Refused | TimedOut] | None = None,
+        unfound_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
         now: float = 0.0,
     ) -> None:
         self._files = files
+        self._unfound_at = unfound_at or {}
         self._unlisted = unlisted
         self._unlisted_at = unlisted_at or {}
         self._history = history or {}
@@ -111,6 +115,29 @@ class FakeRepository:
         if self._passed(deadline):
             return TimedOut(f"list the history of {path}")
         return self._history.get(path, ())
+
+    def find(
+        self, name: str, at: Base | Head, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        """The target's files with the name, read from its files whatever
+        `unlisted` scripts for the tree listing."""
+        self.asked.append(("find", at))
+        if self._passed(deadline):
+            return TimedOut(f"find every {name}")
+        if at in self._unfound_at:
+            return self._unfound_at[at]
+        return tuple(
+            sorted(p for p in self._files.get(at, {}) if p.rpartition("/")[2] == name)
+        )
+
+    def touched(
+        self, name: str, base: Base, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        """The paths with the name that `history` scripts."""
+        self.asked.append(("touched", base))
+        if self._passed(deadline):
+            return TimedOut(f"list the history of every {name}")
+        return tuple(sorted(p for p in self._history if p.rpartition("/")[2] == name))
 
     def changed(
         self, base: Base, head: Head, deadline: Deadline | None
@@ -279,9 +306,13 @@ class FakeRecords:
     """RecordsPort over a mapping of target -> the records, the
     RecordsUnavailable or the TimedOut the test scripts for it, so base and
     head can hold different records. A target it does not hold has none.
-    `radar` scripts the radar per target the same way. Its clock is frozen
-    at `now`, so a deadline at or before it has passed. `asked` lists every
-    call, by method and target, in order."""
+    `radar` scripts the radar per target the same way. `by_record` scripts
+    the records by the design record the declaration names -- keyed by its
+    path, or by (target, path) to tell base from head -- so two
+    sub-projects can name two records; `by_radar` scripts the radar by the
+    radar path named. Its clock is frozen at `now`, so a deadline at or
+    before it has passed. `asked` lists every call, by method and target,
+    in order; `named` every call with the record or radar path it named."""
 
     def __init__(
         self,
@@ -289,12 +320,20 @@ class FakeRecords:
         *,
         radar: Mapping[Base | Head, Radar | RecordsUnavailable | TimedOut]
         | None = None,
+        by_record: Mapping[
+            str | tuple[Base | Head, str], DesignRecords | RecordsUnavailable | TimedOut
+        ]
+        | None = None,
+        by_radar: Mapping[str, Radar | RecordsUnavailable | TimedOut] | None = None,
         now: float = 1e9,
     ) -> None:
         self._by_target = by_target
         self._radar = radar or {}
+        self._by_record = by_record or {}
+        self._by_radar = by_radar or {}
         self._now = now
         self.asked: list[tuple[str, Base | Head]] = []
+        self.named: list[tuple[str, Base | Head, str | None]] = []
 
     def records(
         self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
@@ -302,6 +341,12 @@ class FakeRecords:
         self.asked.append(("records", at))
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("read the design records")
+        named = declaration.records
+        self.named.append(("records", at, named.design if named else None))
+        if named is not None:
+            for key in ((at, named.design), named.design):
+                if key in self._by_record:
+                    return self._by_record[key]
         return self._by_target.get(
             at, RecordsUnavailable("no design record at this target")
         )
@@ -312,6 +357,9 @@ class FakeRecords:
         self.asked.append(("radar", at))
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("read the radar")
+        self.named.append(("radar", at, declaration.radar))
+        if declaration.radar is not None and declaration.radar in self._by_radar:
+            return self._by_radar[declaration.radar]
         return self._radar.get(at, RecordsUnavailable("no radar at this target"))
 
 
@@ -378,8 +426,9 @@ class FakeDecision:
 class FakeReviews:
     """ReviewPort over a mapping of commit -> the answer the test scripts;
     a commit it does not hold is Unknown. `asked` keeps every commit it
-    was asked about, in order. Its clock is frozen at `now`, so a deadline
-    at or before it has passed."""
+    was asked about, in order, and `asked_for` each with the declaration
+    path it was asked for. Its clock is frozen at `now`, so a deadline at
+    or before it has passed."""
 
     def __init__(
         self,
@@ -393,11 +442,13 @@ class FakeReviews:
         self._answers = answers or {}
         self._now = now
         self.asked: list[str] = []
+        self.asked_for: list[tuple[str, str]] = []
 
     def approvals(
-        self, commit: str, deadline: Deadline | None
+        self, commit: str, deadline: Deadline | None, *, path: str = DECLARATION_PATH
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
         self.asked.append(commit)
+        self.asked_for.append((commit, path))
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("read the reviews of a landing")
         return self._answers.get(commit, Unknown(NO_REVIEWS))

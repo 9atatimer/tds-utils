@@ -16,6 +16,7 @@ from adherence.domain.model import CodeLanguage, CodeModel, UnitKind, language_o
 # --- Constants ---------------------------------------------------------------
 
 UNASSIGNED = "in no declared layer, so no check reads it"
+UNDECLARED_SUBTREE = "undeclared subtree: no declaration governs this path"
 
 # --- Values ------------------------------------------------------------------
 
@@ -56,6 +57,12 @@ def unmodelled(model: CodeModel, *, declared: bool) -> tuple[Coverage, ...]:
             if declared and path not in covered
         ),
     )
+
+
+def undeclared_subtree(paths: Collection[str]) -> tuple[Coverage, ...]:
+    """Each path no governing declaration reaches: it has no adherence, so
+    nothing reads it, and the coverage says so."""
+    return tuple(Coverage(UNDECLARED_SUBTREE, path=path) for path in sorted(paths))
 
 
 def unmeasured(

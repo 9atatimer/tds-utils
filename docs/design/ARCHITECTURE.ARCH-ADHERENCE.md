@@ -43,8 +43,8 @@ Findings leave as SARIF and as the fleet's ledger records.
  | adherence/  (uv project)                                             |
  |  cli/        entry point: parse, call the use cases, present         |
  |  container   the composition root: binds adapters per stage          |
- |  application load_declaration | measure | judge_change | explain     |
- |              | record_report                                         |
+ |  application load_declaration | check_declarations | measure           |
+ |              | judge_change | explain | record_report                 |
  |  domain      qualities, checks, questions, threshold, verdict        |
  |  ports       Repository | CodeModel | Complexity | Duplication       |
  |              | Records | Decision | Review | Explanation             |
@@ -86,7 +86,7 @@ vendor name.
 | Each judged question's threshold and abstention band | `ThresholdPolicy` | policy | Retuned from the labelled set per question id without touching the checks; each entry's form follows its question's kind (Mechanism) |
 | What counts as a stub, a vendor name, an environment read, a model id, a region marker, per language | `Vocabulary` | policy | Retuned as the fleet's languages and vendors change; the declaration may extend it, never empty it |
 | The complexity and duplication ceilings, the judged-check budget, the analyzer bound, the commit-time bound, the evidence bound | `Limits` | parameter set | Tuned values the composition root supplies from the suite's shipped defaults; the as-built holds them |
-| What a repository declares: layers, runtimes, records, radar, exemptions, lowered complexity and duplication ceilings, stub and region vocabulary extensions | `Declaration` | parameter (a domain value read through `RepositoryPort` at the base, with the head's widening) | Per repository, never per run. `domain/declaration` is the one owner that merges its overrides into `Parameters`: a ceiling only lowered, a vocabulary only extended |
+| What a repository declares: layers, runtimes, records, radar, exemptions, lowered complexity and duplication ceilings, stub and region vocabulary extensions | `Declaration` | parameter (the governing declarations merged into one domain value, read through `RepositoryPort` at the base, with the head's widening) | Per sub-project, never per run. `domain/declaration` is the one owner that merges its adjustments into `Parameters`: a ceiling only lowered from the shipped default, a vocabulary only extended |
 | How a bounded run is ended when a check does not return | `WorkerPort` | port | `process_worker` runs a job in a child process and ends it at the deadline, returning what the job reported before it was ended; `inline_worker` is the fake, scriptable to end early; the hook binds the first and tests the second |
 | When a bounded run must end | `Deadline` | parameter (an instant the entry point computes) | The hook sets it from the commit-time bound and CI from the job's remaining time; laptop and cloud pass none. It is taken by every method of `RepositoryPort`, `ReviewPort`, `CodeModelPort`, `ComplexityPort`, `DuplicationPort`, `RecordsPort` and `DecisionPort`, and by `ReportStore.get`; not by `ReportStore.put`, which runs after the verdict, nor by `ExplanationPort`, which runs outside judging. Each adapter compares it to the clock at the edge and returns `TimedOut` rather than overrun it; the core reads no time. This record calls these the deadline-bound ports |
 | How findings are presented (terminal, JSON, SARIF, PR check summary) | presenters in `cli/` | entry-point concern, not a seam | Presentation of one `Report` value; no port, because nothing behind it does I/O the domain depends on |
@@ -105,7 +105,7 @@ or option is a migration of the threshold policy and the labelled set.
 |---|---|---|
 | `domain/qualities.py` -- the closed quality set, the check catalog, each check's kind | domain | all |
 | `domain/model.py` -- `CodeModel`: `Unit`, `Layer`, `Region`, `ImportEdge`, `Definition`, `Signature`, `Body` (text, stub markers, sleeps), `Reference` (symbol references and string literals), `Call` (function and constructor calls), `Access` (global and environment reads), `Write` (field writes with the owning unit), `Conditional` (with its discriminant), `Member` (fields and methods of a type), `TestCase` (calls and assertions), `Metrics` (per-function complexity, clones) | domain | all |
-| `domain/declaration.py` -- `Declaration` parse and validation, exemptions, widening merge, the merge of its overrides into `Parameters` (ceilings only lowered, vocabularies only extended), approval counting over the base's CODEOWNERS entries and the approvals passed in as values, the Declared-quality exemption refusal | domain | all |
+| `domain/declaration.py` -- `Declaration` parse and validation of one file, its paths relative to its directory; the merge of the governing declarations into one (`governing_declarations`: union sections as a union, single-valued sections as the nearest file's, a nearer file's `[override.<section>]` replacing the whole section for its subtree; a conflict over a real path, a plain single-valued section already defined above, an override of nothing, or a path that escapes its directory refused as `DeclarationUnreadable` naming the files, the section and the path), exemptions, widening merge, the merge of its adjustments into `Parameters` (ceilings only lowered, vocabularies only extended), approval counting over the base's CODEOWNERS entries and the approvals passed in as values, the Declared-quality exemption refusal | domain | all |
 | `domain/records.py` -- `DesignRecords`: behaviors, domain language, use-case surface, seams; `Radar` | domain | all |
 | `domain/checks/hexagonal.py` -- Grep, Arrow, Swap, Change | domain | all |
 | `domain/checks/layered.py` -- Trace, Purity (rule part and the does_io question), Wiring, Anatomy; the Two-jobs question | domain | all |
@@ -120,8 +120,8 @@ or option is a migration of the threshold policy and the labelled set.
 | `domain/coverage.py` -- `Coverage` | domain | all |
 | `domain/verdict.py` -- two `Report`s and a `Change` to a `Verdict` in the design's order; provenance with renames; removed findings (a base finding absent at the head whose units the head still covers and whose check ran there and passed); exempt findings on either side counted as neither | domain | all |
 | `domain/finding.py` -- `Finding`, its stable identity, `Evidence` bound; `Notice` | domain | all |
-| `domain/report.py` -- `Report`, `Report.not_run`, its identity (suite version, parameters digest, declaration digest, analyzer set, judge availability) | domain | all |
-| `application/load.py` -- `load_declaration` | application | all |
+| `domain/report.py` -- `Report`, `Report.not_run`, its identity (suite version, parameters digest, the digest of the merged declaration, analyzer set, judge availability) | domain | all |
+| `application/load.py` -- `load_declaration`: finds every `adherence.toml` at the revision, parses each relative to its directory, and returns the one merged `Declaration` (its `governed` directories with it) or the `DeclarationUnreadable` the merge refuses; `check_declarations`: the same files each as it reads, and the merge, for `declaration check`; the per-file in-force settlement is `judge_change`'s | application | all |
 | `application/measure.py` -- `measure` | application | all |
 | `application/judge.py` -- `judge_change` | application | all |
 | `application/bounded.py` -- `judge_bounded`: runs `judge_change` through `WorkerPort` and, when the worker is ended at the deadline, builds the `Report` from the finished checks with every unfinished check as `Coverage` (`domain/report.assemble_partial`) | application | `hook` |
@@ -218,9 +218,21 @@ both invoke the same CLI.
 | A missing record on both sides is not inconclusive | (`judge_change`; coverage equal on both sides is not lost coverage) | RecordsPort |
 | An untraceable row is a finding against the record | (`measure`; Trace) | RecordsPort |
 | An undeclared repository is measured | (`load_declaration` returns `Declaration.none`; `measure` with it) | RepositoryPort |
+| An undeclared subtree has no adherence | (`measure`; a tree path no governing declaration reaches is coverage, "undeclared subtree", built from `RepositoryPort.tree` before the analyzers run, so no `Unit` exists for it and Covered never sees one; `judge_change` adds one `Notice` per directory the change created there) | RepositoryPort |
+| A new declaration governs from the next change | (`judge_change`; a declaration path at the head with no landing on the base's history is a `Notice` and is left out of the merge; its subtree is undeclared for this change) | RepositoryPort, ReviewPort |
+| A declaration's paths stay in its subtree | (`load_declaration`; `domain/declaration` refuses a path that escapes the file's directory as `DeclarationUnreadable`) | RepositoryPort |
+| A fixture is not a declaration | (`load_declaration` and `judge_change`'s in-force walk; a found `adherence.toml` whose path a governing declaration above it, read first, assigns to `Layer.TEST` is dropped from the candidates) | RepositoryPort |
+| A deleted declaration ends with its approval | (`judge_change`; `RepositoryPort.touched` names the deleted path, the history walk counts a deleting landing like any other: approved, nothing is in force for that path; unapproved, the last approved revision is read and the deletion is a `Notice`; `ReviewPort.approvals(commit, deadline, path=)` reads the reviewed text of that file) | RepositoryPort, ReviewPort |
+| A sub-project's declaration governs its subtree | (`load_declaration`; `RepositoryPort.find(declaration name, at, deadline)` lists every `adherence.toml` at the revision and `RepositoryPort.touched(pattern, base, deadline)` the paths a history ever held, so a deleted file is found too; `domain/declaration` parses each with paths relative to its directory and assigns a unit by the declarations in the directories above it) | RepositoryPort |
+| Governing declarations are read as one | (`load_declaration`; `domain/declaration` `governing_declarations`: union sections as a union, the nearest file's single-valued sections; the merged `Declaration` is what `measure` is given) | RepositoryPort |
+| An override replaces a parent's default | (`load_declaration`; `governing_declarations` voids, within the subtree, everything the files above say for the overridden section) | RepositoryPort |
+| A silent conflict is refused | (`load_declaration`; `governing_declarations` is given the tree at the revision and refuses two files placing one real path in two layers, or both defining a single-valued section, without `[override]`, as `DeclarationUnreadable` naming both files, the section and the path; `measure` returns `Report.not_run`) | RepositoryPort |
+| An override of nothing is refused | (`load_declaration`; `governing_declarations` refuses `[override.<section>]` with no file above having the section, as `DeclarationUnreadable` naming the file and section) | RepositoryPort |
+| A declaration in force is settled per file | (`judge_change`; the in-force settlement of the unapproved-declaration row runs per `adherence.toml` path; a file with no counted landing is a notice and governs nothing) | RepositoryPort, ReviewPort |
 | An unreadable declaration is not run | (`measure`; given the `DeclarationUnreadable` that `load_declaration` returned, it returns `Report.not_run` and is its one owner; the CLI and `judge_change` pass the value through) | RepositoryPort |
+| An unreadable declaration is not run (before it lands: `adhere declaration check`, one line per file and the merge) | `check_declarations(at: Base \| Head, *, repository: RepositoryPort, deadline: Deadline \| None) -> tuple[tuple[tuple[str, Declaration \| DeclarationUnreadable], ...] \| DeclarationUnreadable, Declaration \| DeclarationUnreadable]` | RepositoryPort |
 | An unreadable edit is a notice | (`judge_change`; `load_declaration` at the head returning `DeclarationUnreadable` becomes a `Notice`, and the declaration in force alone is used) | RepositoryPort |
-| An unapproved declaration is not in force | (`judge_change`; the declaration in force is the newest revision of `adherence.toml` on the base's history whose landing carried a counted approval. `RepositoryPort.history(path, base, deadline)` lists the commits that changed it; `ReviewPort.approvals(commit, deadline)` gives, for the PR that landed each, its approving reviews with reviewer and commit reviewed and the PR's author, or `NoLandingPR`, or `Unknown`, or the typed `unavailable` failure; `judge_change` reads the base's CODEOWNERS through `RepositoryPort` and passes all of it to `domain/declaration` as values. An approval counts only if its reviewer is a code owner of `adherence.toml` by those entries, is not the PR's author, and the reviewed commit's `adherence.toml` bytes equal the landed one's, so approve-then-push does not pass; a CODEOWNERS team entry counts as no owner and is a `Notice`. In `ci` the walk fails closed: a landing with no counted approval, with `NoLandingPR` (a direct push or a bypass) or with an `unavailable` failure is skipped with a `Notice`, and the walk continues to the previous revision; when none remains the repository is judged as undeclared, which makes every layer check coverage and the verdict inconclusive at best, never a pass. `Unknown` is what `no_reviews` returns in `laptop`, `hook` and `cloud`, where the landed declaration stands because those places cannot know and the gate is where it matters) | ReviewPort, RepositoryPort |
+| An unapproved declaration is not in force | (`judge_change`; per `adherence.toml` path, the declaration in force is the newest revision on the base's history whose landing carried a counted approval. `RepositoryPort.history(path, base, deadline)` lists the commits that changed it; `ReviewPort.approvals(commit, deadline)` gives, for the PR that landed each, its approving reviews with reviewer and commit reviewed and the PR's author, or `NoLandingPR`, or `Unknown`, or the typed `unavailable` failure; `judge_change` reads the base's CODEOWNERS through `RepositoryPort` and passes all of it to `domain/declaration` as values. An approval counts only if its reviewer is a code owner of `adherence.toml` by those entries, is not the PR's author, and the reviewed commit's `adherence.toml` bytes equal the landed one's, so approve-then-push does not pass; a CODEOWNERS team entry counts as no owner and is a `Notice`. In `ci` the walk fails closed: a landing with no counted approval, with `NoLandingPR` (a direct push or a bypass) or with an `unavailable` failure is skipped with a `Notice`, and the walk continues to the previous revision; when none remains the repository is judged as undeclared, which makes every layer check coverage and the verdict inconclusive at best, never a pass. `Unknown` is what `no_reviews` returns in `laptop`, `hook` and `cloud`, where the landed declaration stands because those places cannot know and the gate is where it matters) | ReviewPort, RepositoryPort |
 | An author's approval is refused | (`judge_change`; `domain/declaration` refuses an approval whose reviewer is the PR's author as `ReviewPort` reports it, never the commit's git author, whoever the author is; the owner-as-author case design Q11 leaves open is refused until ruled (Q7 here); the report says why) | ReviewPort |
 | A change that raises is raised | (`judge_change`; `domain/verdict`) | RepositoryPort, CodeModelPort, ReportStore |
 | A change that lowers is lowered | (`judge_change`; `domain/verdict`) | RepositoryPort, CodeModelPort, ReportStore |
@@ -257,9 +269,11 @@ both invoke the same CLI.
 `Base` and `Head` are the design's: a repository at one revision; a
 working tree or a staged index is a `Head`. `Declaration` arrives as a
 value: `load_declaration(at: Base | Head, *, repository: RepositoryPort,
-deadline: Deadline | None) -> Declaration | DeclarationUnreadable` reads
-it, and for a change `judge_change` merges the base's with the head's
-widening before calling `measure`. `analyzers` is the
+deadline: Deadline | None) -> Declaration | DeclarationUnreadable` finds
+every `adherence.toml` at the revision and returns the governing
+declarations merged into one value, and for a change `judge_change`
+settles each file in force and merges the base's with the head's widening
+before calling `measure`. `analyzers` is the
 mapping from each measured `CodeLanguage` to its `CodeModelPort` that the
 composition root built; the use case asks it which languages are covered
 and reports the rest as coverage. `Parameters` bundles `ThresholdPolicy`,
@@ -296,8 +310,8 @@ Language; they are re-checked against the design the day the design is merged.
 
 | Responsibility | Component | Seams crossed |
 |---|---|---|
-| Read the declaration in force | `load_declaration(at)` -> `RepositoryPort.read(declaration path, at, deadline)` -> `domain/declaration`; for a change, `judge_change` settles which landed revision is in force (the unapproved-declaration row), loads it and the head, and merges the head's widening for created units before calling `measure`; `measure` given `DeclarationUnreadable` returns `Report.not_run` | RepositoryPort, ReviewPort |
-| Build the code model | one `CodeModelPort` per declared language over the files the declaration covers, each call carrying the `Deadline`; each returns `Unit`s with their `Layer` from the declaration's assignments (directory, file or region), or `TimedOut` | CodeModelPort |
+| Read the declarations in force | `load_declaration(at)` -> `RepositoryPort.find(declaration name, at, deadline)` then `RepositoryPort.read(each path, at, deadline)` -> `domain/declaration` (each file parsed relative to its directory, then merged by `governing_declarations` over the tree at the revision); for a change, `judge_change` settles which landed revision is in force (the unapproved-declaration row), loads it and the head, and merges the head's widening for created units before calling `measure`; `measure` given `DeclarationUnreadable` returns `Report.not_run` | RepositoryPort, ReviewPort |
+| Build the code model | one `CodeModelPort` per declared language over the files the declaration covers, each call carrying the `Deadline`; each returns `Unit`s with their `Layer` from the governing declarations' assignments (directory, file or region), `None` for a unit in a governed subtree no layer covers, or `TimedOut`; a unit in an undeclared subtree is not handed to an analyzer at all | CodeModelPort |
 | Measure complexity and duplication | `ComplexityPort.measure(units, deadline)` and `DuplicationPort.measure(units, deadline)` -> `Metrics`, merged into the `CodeModel` | ComplexityPort, DuplicationPort |
 | Read the records | `RecordsPort.records(at, declaration, deadline)`, `RecordsPort.radar(at, declaration, deadline)` | RecordsPort |
 | Run the rule checks | every target-level check in `domain/checks/*`: `(CodeModel, Declaration, DesignRecords, Radar, Parameters) -> (findings, questions, notices)`; pure; `Metrics` is part of the `CodeModel`. The change-level checks run in `judge_change`: Covered over the head `CodeModel` and `change.created`, Record kept over the base and head `DesignRecords` | none |
@@ -305,8 +319,12 @@ Language; they are re-checked against the design the day the design is merged.
 | Cover | `domain/coverage`: everything unread, unanalyzed, unanswered or cut off by `TimedOut` into `Coverage` with its reason | none |
 | Report | `Report` value with its identity; presenters shape it | none |
 
-The declaration is TOML at the repository root, `adherence.toml`, read with
-the standard library. It names: `[layers]` as path globs and regions per
+A declaration is TOML in a file named `adherence.toml`, read with the
+standard library, at the repository root or in a sub-project's directory;
+its paths are relative to its own directory, and the governing
+declarations of a path are the files in the directories above it, root
+first, merged by `domain/declaration` (the design, The declaration). It
+names: `[layers]` as path globs and regions per
 layer, `[runtimes]`, `[records]` paths, `[radar]` path, `[exemptions]`
 with reasons, `[limits]` lowering the complexity and
 duplication ceilings, and `[vocabulary]` extending the stub and region
@@ -316,8 +334,19 @@ and Python tools already carry (`Action functions`, `Flow functions`,
 `Main`, `Predicates`, `Pure helpers`, `Entry points`), with the
 section-to-layer mapping in `Vocabulary`; a file written to the coding
 skill's numbered anatomy or to neither form declares its regions by line
-range. In an adopting repository `adherence.toml` is a CODEOWNERS path
-naming users, so tedium lands no change to it without the owner's
+range; a region's file and a marker file are relative to the declaring
+file's directory like every other path, and a marker-declared region
+takes the merged vocabulary. A section under `[override]`
+(`[override.records]`, `[override.radar]`, `[override.limits]`,
+`[override.layers]`, `[override.runtimes]`, `[override.exemptions]`)
+replaces, for the file's subtree, the whole of what the files above it
+say for that section; a plain section defines, a plain single-valued one
+is refused where a file above has it, and `[override.vocabulary]` is
+refused because the vocabulary is one per run. A layer conflict counts a
+line-range region as its file's assignment; a marker-declared region's
+layer is read from the file's text at measurement and cannot conflict at
+load. In an adopting repository every `adherence.toml` is a CODEOWNERS
+path naming users, so tedium lands no change to one without the owner's
 approval.
 
 ### Facts and judgements told apart
@@ -359,8 +388,8 @@ wrap.
 
 | Responsibility | Component | Seams crossed |
 |---|---|---|
-| Two reports | `judge_change` measures `change.head` under the merged declaration; for `change.base` it asks `ReportStore.get(repo, base, identity, deadline)` with the base identity: the head run's suite version, parameters digest, analyzer set and judge availability, with the digest of the declaration in force. A stored report is comparable only when its identity equals the base identity; on a miss or a mismatch it measures the base under the declaration in force | ReportStore, then `measure`'s seams |
-| The declaration in force | the newest landed revision of `adherence.toml` on the base's history whose landing carried a counted approval (the unapproved-declaration row); `load_declaration` at that revision and at `change.head`; from the head only widening for created units is taken; every other difference is a notice | RepositoryPort, ReviewPort |
+| Two reports | `judge_change` measures `change.head` under the merged declaration; for `change.base` it asks `ReportStore.get(repo, base, identity, deadline)` with the base identity: the head run's suite version, parameters digest, analyzer set and judge availability, with the digest of the merged declarations in force. A stored report is comparable only when its identity equals the base identity; on a miss or a mismatch it measures the base under the declaration in force | ReportStore, then `measure`'s seams |
+| The declarations in force | per `adherence.toml` path, the newest landed revision on the base's history whose landing carried a counted approval (the unapproved-declaration row); a file with none governs nothing and is a notice; `load_declaration` at that revision and at `change.head`; from the head only widening for created units is taken; every other difference is a notice | RepositoryPort, ReviewPort |
 | Provenance | `judge_change` reads created, deleted and renamed units from `RepositoryPort.changed` and passes them to the domain as the `Change` value; `domain/verdict`, with every path resolved through the renames: a head finding whose key (identity, resolved path) is absent from the base report is introduced, whatever unit it names, a created unit's findings among them; one present at the base is existing; a finding marked exempt on either side counts as neither | RepositoryPort |
 | Removed findings | `domain/verdict`: a base finding, path resolved through the renames, absent from the head report, where every unit it names is still covered at the head and its check ran there and passed; an abstention, a check in `Coverage` at the head and a deleted unit remove nothing; the removed findings ride on the `Report` for the presenters | none |
 | Verdict | `domain/verdict`: the two `Report`s, the `Change`, exempt findings on either side counting as neither, to a `Verdict` by the design's verdict rules and order (DESIGN.ARCH-ADHERENCE.md); the rules are the design's and are not restated here | none |
@@ -447,7 +476,7 @@ never changes the verdict.
 | Commit-time bound | `Limits.commit_time_bound`, turned into a `Deadline` by `cli/main.py` | the composition root |
 | (architecture-owned) analyzer bound | `Limits.analyzer_bound`, the subprocess timeout every analyzer adapter applies, cut to the time remaining before `Deadline`; the design names only the commit-time bound | the composition root |
 | Judged-check budget, per run | `Limits.judged_budget` | the composition root, per stage |
-| Complexity ceiling | `Limits.complexity_ceiling` | shipped default; the declaration's `[limits]` may lower it, never raise it, merged by `domain/declaration` |
+| Complexity ceiling | `Limits.complexity_ceiling` | shipped default; a declaration's `[limits]` may lower it, never raise it, whichever file sets it, merged by `domain/declaration` |
 | Duplication ceiling | `Limits.duplication_ceiling` | as above |
 | Evidence bound | `Limits.evidence_bound` | the composition root |
 | Measured languages (G11) | the `analyzers` mapping | the composition root, by the declaration's languages and the adapters installed |
@@ -464,7 +493,7 @@ No values here. The as-built holds them.
 |---|---|
 | Release class | R3 at first release: a new component, a new data store (the ledger bucket), and a new required check in adopting repositories. R2 for each later analyzer or check; R1 otherwise |
 | Stages and platforms | The laptop through the release worktree (`bin/tds-release`), as the other `bin/` tools; adopting repositories' CI through `adherence.yml` pinned by the refs the OCR on Demand caller pins (`uses:` and `tools_ref`, tds-utils Issue#453 names the cost of two pins); cloud sessions by the session's checkout of this repository |
-| Rollout | Per repository. Adoption requires branch protection on the default branch that requires code-owner review and requires the adherence check by name, and CODEOWNERS entries naming users for `adherence.toml`, the caller workflow and its pins. The declaration lands first, so the first judged change is held to the base's own findings and nothing older; it is still lowered by what it itself introduces. `adherence.yml` joins `gate`'s `needs` only after one green run on the repository; the pre-commit stage is on by default once `naatm-hooks` ships it and off by the hook's own switch |
+| Rollout | Per repository. Adoption requires branch protection on the default branch that requires code-owner review and requires the adherence check by name, and CODEOWNERS entries naming users for every `adherence.toml`, the caller workflow and its pins; a monorepo declares package by package, each package's file naming its own design record, and the ci scope that selects the job matches `**/adherence.toml`. The declaration lands first, so the first judged change is held to the base's own findings and nothing older; it is still lowered by what it itself introduces. `adherence.yml` joins `gate`'s `needs` only after one green run on the repository; the pre-commit stage is on by default once `naatm-hooks` ships it and off by the hook's own switch |
 | Rollback | Remove the job from `gate`'s `needs`, the check from branch protection, and the hook stage; a repository's `adherence.toml` may stay, it changes nothing without a caller |
 | Data that cannot be rolled back | Ledger records are append-only and perpetual, by the warehouse's invariants |
 | Data warehouse | `adherence-ledger`, provisioned in tds-internal `ops/terraform/adherence-ledger/` on the ci-magic-ledger pattern; the scan-write and lookup-write credentials on the adopting repository per the warehouse's credential chain, the lookup one in an environment restricted to the default branch and scoped to the repository's `by-rev/<repo>/` prefix |
@@ -473,8 +502,8 @@ No values here. The as-built holds them.
 |---|---|---|---|
 | An analyzer missing on the runner | coverage missing for that language; verdict inconclusive at best | the report's coverage reasons name the binary; the workflow's install step | `CodeModelPort` (the `analyzers` mapping) |
 | The judge unavailable | every judged check as coverage; verdict inconclusive at best | `decide probe` on the laptop; the job's `DECIDE_*` variables in CI | `DecisionPort` |
-| GitHub reviews unreadable (API error, rate limit, landing PR not resolved) | the walk skips that landing with a `Notice`; the previous approved revision is in force, or the repository is judged undeclared and the verdict is inconclusive at best | the notice's error; the job's token permissions and the PR context of the run | `ReviewPort` |
-| A declaration that does not parse | verdict not run with the parse error | `adhere declaration check` | `Declaration`, read through `RepositoryPort` |
+| GitHub reviews unreadable (API error, rate limit, landing PR not resolved) | the walk skips that landing with a `Notice`; the previous approved revision of that file is in force, or that file governs nothing and its subtree is undeclared, the whole repository when no file is in force, and the verdict is inconclusive at best | the notice's error; the job's token permissions and the PR context of the run | `ReviewPort` |
+| A declaration that does not parse | verdict not run with the parse error | `adhere declaration check` (`check_declarations`: one line per file, then the merge) | `Declaration`, read through `RepositoryPort` |
 | Base report missing from the store, or kept under another identity | a second measurement of the base; slower, and the only path to a verdict | the cache's path in the report; the identity mismatch noted | `ReportStore`, report identity |
 | The hook over its bound | the checks that did not run listed as coverage; the commit proceeds, since `cli/main.py` exits zero on inconclusive in the `hook` stage | the report names which checks and which analyzer hit `Limits.analyzer_bound` | `Deadline`, `Limits.commit_time_bound`, `Limits.analyzer_bound` |
 | A Trace that matches nothing because a signature changed shape | one finding per design row | the use-case surface in the architecture record, compared to the code's `Signature` | `CodeModelPort` (`Signature`), `RecordsPort` |
@@ -518,7 +547,7 @@ library; no new row.
 | Finding identity | A digest without line numbers or path; the path joined through renames at judging | The same flaw must be the same finding after an unrelated edit moves it or a rename relocates it |
 | The bound is a deadline, not a clock | The entry point computes an instant; every deadline-bound port method takes it; each adapter compares it to the time at the edge, caps its work, and returns `TimedOut`; the core reads no time and makes no port call after the first `TimedOut`; `judge_bounded` runs the engine through `WorkerPort`, which ends the job at the deadline, so a pure check that does not return cannot hold the commit | Reading the time and ending a process are I/O and belong at the edge; the core's reaction to the bound is tested by a fake scripted to return `TimedOut`, and the total bound by `inline_worker` scripted to end early, with no clock in the core |
 | Findings as SARIF | The CLI's machine format and the PR's surface | Code scanning renders SARIF at the line with no comment code to write; editors read it |
-| The declaration's form | TOML at the repository root; regions by marker or by line range | Read with the standard library in Python; one visible file an owner edits; a line range covers files written to no marker convention |
+| The declaration's form | TOML named `adherence.toml`, at the repository root or in a sub-project, governing its subtree; regions by marker or by line range | Read with the standard library in Python; one visible file per sub-project an owner edits, code-owned with it; a line range covers files written to no marker convention |
 | The ledger carries no quoted code | Location and identity only | The warehouse admits raw output text; this producer does not need the exemption |
 | The explainer has no tools | `claude_cli` in print mode with every tool disallowed; a contract suite over the port | The unit under explanation can address the model; a model that can act is the one adapter through which that text could do anything |
 | Where it lives in this repository | `adherence/` at the root with `bin/adhere`, listed in `lmde/LMDE.md` under the contract as `decide` is | The LMDE contract is a list of tools and services; `lmde/components/` holds install trees for laptop services, which this is not |

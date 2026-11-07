@@ -24,7 +24,7 @@ import click
 
 from adherence.application.bounded import judge_bounded
 from adherence.application.judge import judge_change
-from adherence.application.load import load_declaration
+from adherence.application.load import check_declarations, load_declaration
 from adherence.application.measure import measure
 from adherence.application.record import record_report
 from adherence.cli.presenters.json_report import report_json
@@ -100,20 +100,41 @@ def _refusal_line(refusal: RefusedExemption) -> str:
     return _safe(f"  refused exemption: {target}: {refusal.reason}")
 
 
-def _declaration_lines(loaded: Declaration | DeclarationUnreadable) -> list[str]:
-    if isinstance(loaded, DeclarationUnreadable):
-        return [_safe(f"declaration unreadable: {loaded.reason}")]
-    if not loaded.declared:
-        return [f"{DECLARATION_PATH}: none; the repository is measured as undeclared"]
-    count = len(loaded.exemptions)
+def _file_lines(path: str, read: Declaration | DeclarationUnreadable) -> list[str]:
+    """One declaration file: its path, whether it reads, its exemptions,
+    and each exemption and vocabulary it states that the suite refuses."""
+    if isinstance(read, DeclarationUnreadable):
+        return [_safe(f"{path}: unreadable: {read.reason}")]
+    stated = read
+    count = len(stated.exemptions)
     return [
-        f"{DECLARATION_PATH}: readable, {count} exemption{'s' if count != 1 else ''}",
-        *map(_refusal_line, loaded.refused_exemptions),
+        _safe(f"{path}: readable, {count} exemption{'s' if count != 1 else ''}"),
+        *map(_refusal_line, stated.refused_exemptions),
         *(
             _safe(f"  refused vocabulary: {key}: {VOCABULARY_REFUSAL}")
-            for key in loaded.vocabulary.refused
+            for key in stated.vocabulary.refused
         ),
     ]
+
+
+def _declaration_lines(
+    files: tuple[tuple[str, Declaration | DeclarationUnreadable], ...]
+    | DeclarationUnreadable,
+    merged: Declaration | DeclarationUnreadable,
+) -> list[str]:
+    """A line per declaration file found, then the merge's refusal when
+    every file reads and they cannot be read as one."""
+    if isinstance(files, DeclarationUnreadable):
+        return [_safe(f"declaration unreadable: {files.reason}")]
+    if not files:
+        return [f"{DECLARATION_PATH}: none; the repository is measured as undeclared"]
+    lines = [line for path, read in files for line in _file_lines(path, read)]
+    every_file_reads = not any(
+        isinstance(read, DeclarationUnreadable) for _, read in files
+    )
+    if isinstance(merged, DeclarationUnreadable) and every_file_reads:
+        lines.append(_safe(f"governing declarations unreadable: {merged.reason}"))
+    return lines
 
 
 def _presenter(format_name: str | None, as_json: bool) -> Callable[..., str]:
@@ -183,7 +204,7 @@ def main(stage: str | None) -> None:
 
 @main.group()
 def declaration() -> None:
-    """The repository's adherence.toml."""
+    """The repository's adherence.toml files."""
 
 
 @declaration.command("check")
@@ -196,14 +217,15 @@ def declaration() -> None:
 )
 @click.pass_context
 def declaration_check(ctx: click.Context, root: str) -> None:
-    """Read the working tree's adherence.toml and say whether it can be read."""
+    """Read every adherence.toml in the working tree and say whether each,
+    and all of them as one, can be read."""
     container = build(_chosen_stage(ctx) or Stage.LAPTOP, root=root)
-    loaded = load_declaration(
+    files, merged = check_declarations(
         Head.working_tree(), repository=container.repository, deadline=None
     )
-    for line in _declaration_lines(loaded):
+    for line in _declaration_lines(files, merged):
         click.echo(line)
-    if isinstance(loaded, DeclarationUnreadable):
+    if isinstance(merged, DeclarationUnreadable):
         sys.exit(1)
 
 

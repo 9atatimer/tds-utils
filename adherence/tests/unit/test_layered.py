@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 from dataclasses import replace
 
+from adherence.domain.declaration import Runtime
 from adherence.domain.finding import Finding
 from adherence.domain.model import (
     Body,
@@ -475,6 +476,28 @@ def test_measure_runtime_no_unit_constructs_adapters_for_is_a_disagreement() -> 
     assert "worker" in disagreement.subject
     assert "disagree" in disagreement.subject
     assert disagreement.unit.path == "adherence.toml"
+
+
+def test_a_runtime_no_unit_wires_is_a_finding_on_the_file_declaring_it() -> None:
+    """Given a runtime a sub-project's declaration declares and no unit
+    wires, When Wiring runs, Then the disagreement is placed on that
+    sub-project's adherence.toml, not the root's."""
+    declaration = replace(
+        declared(WIRED),
+        runtimes=(
+            *declared(WIRED).runtimes,
+            Runtime("worker", ("pkg/worker/**",), source="pkg/adherence.toml"),
+        ),
+    )
+    definitions = _wired(_function(ROOT, "build", (), line=5))
+    calls = (Call(ROOT, 6, "build", "FsStore"),)
+    files = {path: b"x\n" for path in (STORE, FS, ROOT)}
+
+    report = measure_with(files, _wiring_facts(definitions, calls), declaration)
+
+    (disagreement,) = _of(report, "Wiring")
+    assert disagreement.unit.path == "pkg/adherence.toml"
+    assert disagreement.evidence.path == "pkg/adherence.toml"
 
 
 def test_measure_adapter_constructed_outside_the_root_is_found() -> None:

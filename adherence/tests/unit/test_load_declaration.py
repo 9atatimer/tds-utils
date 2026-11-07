@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from adherence.adapters.fakes import FakeRepository
-from adherence.application.load import load_declaration
+from adherence.application.load import check_declarations, load_declaration
 from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import (
     DECLARATION_PATH,
@@ -92,3 +92,137 @@ def test_load_declaration_that_parses_is_declared() -> None:
 
     assert isinstance(loaded, Declaration)
     assert loaded.declared
+
+
+def test_load_declaration_reads_every_declaration_as_one() -> None:
+    """Given a root declaration naming the radar and a sub-project one
+    naming its layers, When the declaration is loaded, Then it is the two
+    read as one, governing both directories."""
+    repository = FakeRepository(
+        {
+            HEAD: {
+                DECLARATION_PATH: b'[radar]\npath = "RADAR.md"\n',
+                "pkg/adherence.toml": b'[layers]\ndomain = ["core/**"]\n',
+                "pkg/core/rules.py": b"x = 1\n",
+            }
+        }
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, Declaration)
+    assert loaded.governed == ("", "pkg")
+    assert loaded.radar_for("pkg/core/rules.py") == "RADAR.md"
+    assert loaded.layers.globs[0][1] == "pkg/core/**"
+
+
+def test_load_declaration_with_only_sub_project_declarations_is_declared() -> None:
+    """Given declarations only in sub-projects, When the declaration is
+    loaded, Then the repository is declared and only those subtrees are
+    governed."""
+    repository = FakeRepository(
+        {HEAD: {"a/adherence.toml": b"[layers]\n", "b/adherence.toml": b"[layers]\n"}}
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, Declaration) and loaded.declared
+    assert not loaded.governs("c/x.py") and loaded.governs("b/x.py")
+
+
+def test_load_declaration_with_a_layer_conflict_on_a_real_path_is_unreadable() -> None:
+    """Given two governing declarations placing a file of the tree in two
+    layers, When the declaration is loaded, Then it cannot be read, naming
+    both files and the path."""
+    repository = FakeRepository(
+        {
+            HEAD: {
+                DECLARATION_PATH: b'[layers]\ndomain = ["**/*.py"]\n',
+                "pkg/adherence.toml": b'[layers]\nadapters = ["*.py"]\n',
+                "pkg/io.py": b"x = 1\n",
+            }
+        }
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, DeclarationUnreadable)
+    assert "pkg/adherence.toml" in loaded.reason and "pkg/io.py" in loaded.reason
+
+
+def test_load_declaration_names_the_sub_project_file_that_cannot_be_parsed() -> None:
+    """Given a sub-project declaration that does not parse, When the
+    declaration is loaded, Then it cannot be read, naming that file."""
+    repository = FakeRepository(
+        {HEAD: {DECLARATION_PATH: b"[layers]\n", "pkg/adherence.toml": b"[layers\n"}}
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, DeclarationUnreadable)
+    assert "pkg/adherence.toml" in loaded.reason
+
+
+def test_a_declaration_file_under_a_declared_test_layer_is_test_data() -> None:
+    """Given a root declaration placing tests/** in the test layer and an
+    unreadable adherence.toml in a fixture under it, When the declaration
+    is loaded, Then the fixture's file is never read as a declaration: the
+    root alone governs, and the fixture is under it."""
+    repository = FakeRepository(
+        {
+            HEAD: {
+                DECLARATION_PATH: b'[layers]\ntest = ["tests/**"]\n',
+                "tests/fixtures/broken/adherence.toml": b"[layers\n",
+            }
+        }
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, Declaration), loaded
+    assert loaded.governed == ("",)
+    assert ("tests/fixtures/broken/adherence.toml", HEAD) not in repository.reads
+
+
+def test_the_same_file_outside_any_test_layer_is_a_declaration() -> None:
+    """Given the same unreadable adherence.toml where no declaration above
+    places it in the test layer, When the declaration is loaded, Then it is
+    read as a declaration, and cannot be read."""
+    repository = FakeRepository(
+        {
+            HEAD: {
+                DECLARATION_PATH: b'[layers]\ntest = ["tests/**"]\n',
+                "lib/fixtures/broken/adherence.toml": b"[layers\n",
+            }
+        }
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, DeclarationUnreadable)
+    assert "lib/fixtures/broken/adherence.toml" in loaded.reason
+
+
+def test_check_declarations_returns_each_file_and_the_merge() -> None:
+    """Given two readable declarations that conflict over a real file, When
+    they are checked, Then each file reads on its own and the merge is the
+    refusal naming both."""
+    repository = FakeRepository(
+        {
+            HEAD: {
+                DECLARATION_PATH: b'[layers]\ndomain = ["**/*.py"]\n',
+                "pkg/adherence.toml": b'[layers]\nadapters = ["*.py"]\n',
+                "pkg/io.py": b"x = 1\n",
+            }
+        }
+    )
+
+    files, merged = check_declarations(HEAD, repository=repository, deadline=None)
+
+    assert not isinstance(files, DeclarationUnreadable)
+    assert [path for path, read in files if isinstance(read, Declaration)] == [
+        DECLARATION_PATH,
+        "pkg/adherence.toml",
+    ]
+    assert isinstance(merged, DeclarationUnreadable)
+    assert "adherence.toml and pkg/adherence.toml" in merged.reason

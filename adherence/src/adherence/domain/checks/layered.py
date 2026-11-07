@@ -16,9 +16,9 @@ from adherence.domain.checks.hexagonal import implements, is_fake, is_port
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import (
-    DECLARATION_PATH,
     Declaration,
     Runtime,
+    is_under,
     layer_of,
     matches,
 )
@@ -152,8 +152,12 @@ def is_rule(definition: Definition) -> bool:
 
 
 def is_in_runtime(path: str, runtime: Runtime) -> bool:
-    """Whether a path is one of the runtime's units."""
-    return any(matches(pattern, path) for pattern in runtime.patterns)
+    """Whether a path is one of the runtime's units: one its patterns
+    match, outside every subtree a nearer declaration's
+    [override.runtimes] voids it in."""
+    return not any(is_under(path, d) for d in runtime.outside) and any(
+        matches(pattern, path) for pattern in runtime.patterns
+    )
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -504,14 +508,14 @@ def _roots(
 def _no_root(runtime: Runtime) -> Finding:
     """A finding on the declaration: it declares a runtime that no unit
     wires, and the suite does not guess which of the two is right."""
-    unit = Unit(DECLARATION_PATH, UnitKind.FILE, None, 1, 1, None)
+    unit = Unit(runtime.source, UnitKind.FILE, None, 1, 1, None)
     return Finding(
         WIRING,
         unit,
         None,
         f"runtime {runtime.name}: the declaration and the code disagree: no unit "
         "constructs a concrete adapter for it",
-        Evidence(DECLARATION_PATH, 0, f"runtime {runtime.name}"),
+        Evidence(runtime.source, 0, f"runtime {runtime.name}"),
     )
 
 

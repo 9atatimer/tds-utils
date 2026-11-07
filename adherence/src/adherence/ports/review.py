@@ -11,6 +11,7 @@ from typing import Protocol
 
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
+    DECLARATION_PATH,
     Landing,
     NoLandingPR,
     ReviewsUnavailable,
@@ -20,7 +21,7 @@ from adherence.domain.declaration import (
 
 class ReviewPort(Protocol):
     def approvals(
-        self, commit: str, deadline: Deadline | None
+        self, commit: str, deadline: Deadline | None, *, path: str = DECLARATION_PATH
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
         """The pull request that landed the commit, with its author, its
         approving reviews and the account that merged it; NoLandingPR when
