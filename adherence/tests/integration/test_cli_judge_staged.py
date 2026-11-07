@@ -14,7 +14,6 @@ from __future__ import annotations
 import functools
 import json
 import os
-import shutil
 import signal
 import sys
 import threading
@@ -29,6 +28,7 @@ from adherence.adapters.lizard import LizardComplexity
 from adherence.cli.main import main
 from adherence.container import SHIPPED_LIMITS, Container, build
 from adherence.domain.report import ENDED
+from tests.fixture_tree import plant
 from tests.git_kit import git, make_repository
 from tests.worker_jobs import OutlivesTheDeadline
 
@@ -45,10 +45,10 @@ def _staged(root: Path, *, committed: str, staged: str) -> None:
     """A repository whose HEAD holds one fixture tree and whose index stages
     another over it, as a commit about to be made does."""
     make_repository(root, base={}, staged={}, working={})
-    shutil.copytree(FIXTURE / committed, root, dirs_exist_ok=True)
+    plant(FIXTURE / committed, root)
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", committed)
-    shutil.copytree(FIXTURE / staged, root, dirs_exist_ok=True)
+    plant(FIXTURE / staged, root)
     git(root, "add", "-A")
 
 

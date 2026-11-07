@@ -10,7 +10,6 @@ from __future__ import annotations
 import functools
 import json
 import os
-import shutil
 from pathlib import Path
 
 import pytest
@@ -25,6 +24,7 @@ from adherence.adapters.fakes import (
 from adherence.cli.main import main
 from adherence.container import Container, build
 from tests import shell_fixture
+from tests.fixture_tree import plant
 from tests.git_kit import git, make_repository
 from tests.json_schema import sarif_violations
 from tests.judge_kit import passing_judge
@@ -39,7 +39,7 @@ def _revisions(root: Path) -> dict[str, str]:
     make_repository(root, base={}, staged={}, working={})
     revisions: dict[str, str] = {}
     for tree in ("base", "head", "fixed"):
-        shutil.copytree(FIXTURE / tree, root, dirs_exist_ok=True)
+        plant(FIXTURE / tree, root)
         git(root, "add", "-A")
         git(root, "commit", "-q", "-m", tree)
         revisions[tree] = git(root, "rev-parse", "HEAD")
@@ -133,7 +133,7 @@ def _added(root: Path, fixture: Path, path: str) -> tuple[str, str]:
     """A repository holding the fixture without one file at the base and
     whole at the head; their object ids."""
     make_repository(root, base={}, staged={}, working={})
-    shutil.copytree(fixture, root, dirs_exist_ok=True)
+    plant(fixture, root)
     held = (root / path).read_bytes()
     (root / path).unlink()
     git(root, "add", "-A")
@@ -249,7 +249,7 @@ def _undecodable_revisions(root: Path) -> tuple[str, str]:
     stubbed rule under UNDECODABLE, written into the index by object id so
     a filesystem that refuses the name cannot refuse the commit."""
     make_repository(root, base={}, staged={}, working={})
-    shutil.copytree(FIXTURE / "base", root, dirs_exist_ok=True)
+    plant(FIXTURE / "base", root)
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", "base")
     base = git(root, "rev-parse", "HEAD")
