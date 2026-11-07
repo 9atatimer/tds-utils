@@ -366,11 +366,12 @@ jobs:
   # `tools_ref` is the judged head itself, as `uses:` is this file's own
   # copy of the workflow: the two pins move together, and a change to the
   # engine is judged by the engine it carries. A pull request from a fork
-  # is skipped, so no fork's head is ever run as the engine. No secret is
-  # passed: the judge's token waits on design Q4 / architecture Q6, so the
-  # judged checks are coverage; the adherence-ledger warehouse's secrets
-  # wait on tds-internal Issue#276, so reports are kept in the runner's file
-  # cache and the report says so.
+  # is skipped, so no fork's head is ever run as the engine. The one secret
+  # is the adherence vault's read-only 1Password service account; the
+  # judge's token and the warehouse's credential are items it finds there
+  # by tag (adherence.yml, Credentials). Until the
+  # warehouse exists (tds-internal Issue#276) reports are kept in the
+  # runner's file cache and the report says so.
   adherence-judge:
     needs: changes
     if: needs.changes.outputs.adherence == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
@@ -382,6 +383,8 @@ jobs:
       tools_ref: ${{ github.event.pull_request.head.sha || github.sha }}
       base: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/tedium/')) && format('{0}^1', github.sha) || '' }}
       timeout_minutes: 15
+    secrets:
+      ADHERENCE_OP_SA_TOKEN: ${{ secrets.ADHERENCE_OP_SA_TOKEN }}
 
   dynomark-contract:
     needs: changes
