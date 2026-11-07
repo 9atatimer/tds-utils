@@ -6,6 +6,7 @@ through An override of nothing is refused)."""
 
 from __future__ import annotations
 
+import time
 from collections.abc import Collection
 
 import pytest
@@ -374,3 +375,27 @@ def test_conflict_and_layer_of_agree_under_a_bracketed_directory() -> None:
     )
     assert layer_of("x[y]/src/io.py", None, agreed) is Layer.ADAPTERS
     assert is_literal(agreed.layers.globs[-1][1])
+
+
+def test_the_conflict_scan_is_bounded_by_the_nested_subtrees() -> None:
+    """Given a root declaration of forty globs and one sub-project, over a
+    tree of 20,000 paths almost all outside the sub-project, When they are
+    read as one, Then it takes well under a second: a path the root alone
+    governs is never scanned, since one file cannot conflict with itself."""
+    root = "[layers]\ndomain = [{}]\n".format(
+        ", ".join(f'"lib{n}/**/*.py"' for n in range(40))
+    ).encode()
+    tree = [f"lib{n % 40}/d{n}/m{n}.py" for n in range(20_000)]
+    tree += ["pkg/src/a.py"]
+    started = time.perf_counter()
+
+    merged = _merged(
+        {
+            "adherence.toml": root,
+            "pkg/adherence.toml": b'[layers]\ntest = ["src/**"]\n',
+        },
+        tree=tree,
+    )
+
+    assert isinstance(merged, Declaration), merged
+    assert time.perf_counter() - started < 1.0

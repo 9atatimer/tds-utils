@@ -9,7 +9,8 @@ from adherence.adapters.fakes import FakeReviews
 from adherence.domain.coverage import UNDECLARED_SUBTREE
 from adherence.domain.declaration import NoLandingPR
 from adherence.domain.report import Report
-from tests.judge_kit import BASE, judge_with
+from adherence.ports.repository import Refused
+from tests.judge_kit import BASE, HEAD, judge_with
 
 SUB = b"""
 [layers]
@@ -199,3 +200,23 @@ def test_a_fixture_declaration_under_the_test_layer_is_never_settled() -> None:
     assert report.not_run_reason is None, report.not_run_reason
     assert not any(fixture in n for n in _notices(report)), _notices(report)
     assert not any(c.path == fixture for c in report.coverage)
+
+
+def test_a_head_whose_declarations_cannot_be_listed_is_one_notice() -> None:
+    """Given a declaration in force and a head whose declaration files
+    cannot be listed, When the change is judged, Then the one notice about
+    the head's declarations says they cannot be read, and no file in force
+    is told deleted."""
+    base = {"src/app/domain/rules.py": CLEAN}
+
+    report = judge_with(
+        base,
+        {**base, "src/app/domain/new.py": CLEAN},
+        unfound_at={HEAD: Refused(".", "the index is locked")},
+    )
+
+    about = [n for n in _notices(report) if "declaration" in n or "deleted" in n]
+    assert about == [
+        "the change's own declaration cannot be read: . refused: the index is "
+        "locked; it is judged under the declaration in force"
+    ], _notices(report)

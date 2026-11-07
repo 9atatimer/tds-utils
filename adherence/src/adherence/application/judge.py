@@ -25,6 +25,7 @@ from adherence.application.load import (
     read_as_one,
     read_declarations,
     read_file,
+    tree_of,
 )
 from adherence.application.measure import measure_reporting, noticed, reported
 from adherence.domain.checks.declared import (
@@ -426,29 +427,58 @@ def _declaration_in_force(
     )
 
 
-def _proposed(
+@dataclass(frozen=True, slots=True)
+class _HeadDeclarations:
+    """The head's declaration files, None when they cannot be listed; all
+    of them read as one, for the notices; and the head's revisions of the
+    files in force read as one, the only declaration a widening is taken
+    from, since a file new at the head governs from the next change."""
+
+    files: tuple[tuple[str, Declaration | DeclarationUnreadable], ...] | None
+    merged: Declaration | DeclarationUnreadable
+    proposed: Declaration | DeclarationUnreadable
+
+
+def _head_declarations(
     in_force: _InForce,
-    head: tuple[tuple[str, Declaration | DeclarationUnreadable], ...],
     at: Head,
     repository: RepositoryPort,
     deadline: Deadline | None,
-) -> Declaration | DeclarationUnreadable:
-    """The head's own revisions of the files in force, read as one: the
-    only declaration a widening is taken from, since a file new at the head
-    governs from the next change."""
+) -> _HeadDeclarations:
+    """The head's declarations, its tree listed at most once for both
+    merges."""
+    read = read_declarations(at, repository=repository, deadline=deadline)
+    if isinstance(read, DeclarationUnreadable):
+        return _HeadDeclarations(None, read, read)
+    tree: tuple[str, ...] = ()
+    if len(read) > 1:
+        listed = tree_of(at, repository=repository, deadline=deadline)
+        if isinstance(listed, DeclarationUnreadable):
+            return _HeadDeclarations(read, listed, listed)
+        tree = listed
     kept = {path for path, _ in in_force.files}
-    return read_as_one(
-        [read for path, read in head if path in kept],
-        at,
-        repository=repository,
-        deadline=deadline,
+    return _HeadDeclarations(
+        read,
+        read_as_one(
+            [r for _, r in read],
+            at,
+            repository=repository,
+            deadline=deadline,
+            tree=tree,
+        ),
+        read_as_one(
+            [r for path, r in read if path in kept],
+            at,
+            repository=repository,
+            deadline=deadline,
+            tree=tree,
+        ),
     )
 
 
 def _file_notices(
     in_force: _InForce,
-    head: tuple[tuple[str, Declaration | DeclarationUnreadable], ...],
-    merged: Declaration | DeclarationUnreadable,
+    head: _HeadDeclarations,
     paths: Collection[str],
     created: Collection[str],
 ) -> tuple[Notice, ...]:
@@ -456,9 +486,12 @@ def _file_notices(
     naming the file: an edit to one in force, as edit_notices says it; a
     file new at the head, which governs from the next change; a file in
     force the head deletes; and the head's files read as one, when only
-    that cannot be read."""
+    that cannot be read. When the head's files cannot be listed, that is
+    the one notice: no file is told deleted."""
+    if head.files is None:
+        return (_unreadable_edit(head.merged),)
     before = dict(in_force.files)
-    after = dict(head)
+    after = dict(head.files)
     notices: list[Notice] = []
     for path in sorted({*before, *after}, key=lambda p: (p.count("/"), p)):
         was, now = before.get(path), after.get(path)
@@ -490,16 +523,20 @@ def _file_notices(
                     f"{path}: a new declaration governs from the next change{unread}"
                 )
             )
-    every_file_reads = not any(isinstance(r, DeclarationUnreadable) for _, r in head)
-    if isinstance(merged, DeclarationUnreadable) and every_file_reads:
-        notices.append(
-            Notice(
-                "the change's own declaration cannot be read: "
-                f"{merged.reason}; it is judged under the declaration "
-                "in force"
-            )
-        )
+    every_file_reads = not any(
+        isinstance(r, DeclarationUnreadable) for _, r in head.files
+    )
+    if isinstance(head.merged, DeclarationUnreadable) and every_file_reads:
+        notices.append(_unreadable_edit(head.merged))
     return tuple(notices)
+
+
+def _unreadable_edit(merged: Declaration | DeclarationUnreadable) -> Notice:
+    reason = merged.reason if isinstance(merged, DeclarationUnreadable) else ""
+    return Notice(
+        f"the change's own declaration cannot be read: {reason}; it is judged "
+        "under the declaration in force"
+    )
 
 
 def _undeclared_creations(
@@ -663,14 +700,10 @@ def _judged(job: JudgeJob, finished: FinishedSink | None) -> Report:
             compared(base=Report(), head=head, change=change),
             repository=change.repository,
         )
-    read = read_declarations(change.head, repository=repository, deadline=deadline)
-    head_files = () if isinstance(read, DeclarationUnreadable) else read
-    proposed = (
-        read
-        if isinstance(read, DeclarationUnreadable)
-        else _proposed(walked, head_files, change.head, repository, deadline)
+    head_declarations = _head_declarations(walked, change.head, repository, deadline)
+    declaration = widened(
+        in_force=in_force, proposed=head_declarations.proposed, created=change.created
     )
-    declaration = widened(in_force=in_force, proposed=proposed, created=change.created)
     head = measuring.measure(change.head, declaration, finished)
     if head.not_run_reason is not None:
         return replace(
@@ -679,18 +712,7 @@ def _judged(job: JudgeJob, finished: FinishedSink | None) -> Report:
         )
     edits = (
         *_file_notices(
-            walked,
-            head_files,
-            read
-            if isinstance(read, DeclarationUnreadable)
-            else read_as_one(
-                [r for _, r in head_files],
-                change.head,
-                repository=repository,
-                deadline=deadline,
-            ),
-            {u.path for u in head.units},
-            change.created,
+            walked, head_declarations, {u.path for u in head.units}, change.created
         ),
         *_undeclared_creations(declaration, change.created),
     )

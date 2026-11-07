@@ -61,7 +61,8 @@ class FakeRepository:
     one come with the same bytes is a rename. Its clock is frozen at `now`,
     the epoch unless the test sets it, so a deadline at or before it has
     passed and every method answers TimedOut. `asked` lists every call, by
-    method and target, in order."""
+    method and target, in order. `unfound_at` scripts the answer to `find`
+    at a target."""
 
     def __init__(
         self,
@@ -70,9 +71,11 @@ class FakeRepository:
         unlisted: Refused | TimedOut | None = None,
         unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
         history: Mapping[str, tuple[str, ...] | Refused | TimedOut] | None = None,
+        unfound_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
         now: float = 0.0,
     ) -> None:
         self._files = files
+        self._unfound_at = unfound_at or {}
         self._unlisted = unlisted
         self._unlisted_at = unlisted_at or {}
         self._history = history or {}
@@ -121,6 +124,8 @@ class FakeRepository:
         self.asked.append(("find", at))
         if self._passed(deadline):
             return TimedOut(f"find every {name}")
+        if at in self._unfound_at:
+            return self._unfound_at[at]
         return tuple(
             sorted(p for p in self._files.get(at, {}) if p.rpartition("/")[2] == name)
         )

@@ -8,7 +8,7 @@ passes a DeclarationUnreadable through; measure is its one owner.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
@@ -45,10 +45,12 @@ def read_as_one(
     *,
     repository: RepositoryPort,
     deadline: Deadline | None,
+    tree: Collection[str] | None = None,
 ) -> Declaration | DeclarationUnreadable:
     """The files read as one: the first that cannot be read, or the
     governing declarations, their layer conflicts judged over the target's
-    tree, which is listed only when two or more files could conflict."""
+    tree -- the one given, else listed, and only when two or more files
+    could conflict."""
     read: list[Declaration] = []
     for file in files:
         if isinstance(file, DeclarationUnreadable):
@@ -56,6 +58,19 @@ def read_as_one(
         read.append(file)
     if len(read) < 2:
         return governing_declarations(read, ())
+    if tree is not None:
+        return governing_declarations(read, tree)
+    listed = tree_of(at, repository=repository, deadline=deadline)
+    if isinstance(listed, DeclarationUnreadable):
+        return listed
+    return governing_declarations(read, listed)
+
+
+def tree_of(
+    at: Base | Head, *, repository: RepositoryPort, deadline: Deadline | None
+) -> tuple[str, ...] | DeclarationUnreadable:
+    """The target's tree, which layer conflicts are judged over; why the
+    declarations cannot be read when it cannot be listed."""
     tree = repository.tree(at, deadline)
     if isinstance(tree, Refused):
         return DeclarationUnreadable(
@@ -63,7 +78,7 @@ def read_as_one(
         )
     if isinstance(tree, TimedOut):
         return DeclarationUnreadable(f"{tree.operation}: timed out")
-    return governing_declarations(read, tree)
+    return tree
 
 
 def read_declarations(

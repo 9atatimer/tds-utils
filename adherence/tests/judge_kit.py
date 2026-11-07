@@ -143,6 +143,7 @@ def judge_with(
     judge: DecisionPort | None = None,
     root: bytes | None = HEXAGON,
     histories: Mapping[str, tuple[str, ...] | Refused | TimedOut] | None = None,
+    unfound_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
 ) -> Report:
     """judge_change of HEAD against BASE, each holding its files and the
     root declaration (the hexagon; None for none) unless the files carry
@@ -159,6 +160,7 @@ def judge_with(
             **{Base(commit): files for commit, files in (landed or {}).items()},
         },
         unlisted_at=unlisted_at,
+        unfound_at=unfound_at,
         history={
             **({DECLARATION_PATH: history} if root is not None else {}),
             **(histories or {}),

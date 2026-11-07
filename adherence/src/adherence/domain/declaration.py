@@ -1098,8 +1098,13 @@ def _conflict(
     files: Sequence[Declaration], tree: Collection[str]
 ) -> DeclarationUnreadable | None:
     """The first real path two governing files place in two layers, with
-    no [override.layers] between them."""
+    no [override.layers] between them. Only a path two or more files
+    govern can conflict, so only the subtrees of files with a file above
+    them are scanned, never a path the outermost file alone governs."""
+    nested = [f.directory for f in files if _above(f, files)]
     for path in sorted(tree):
+        if not any(is_under(path, directory) for directory in nested):
+            continue
         governing = sorted(
             (f for f in files if is_under(path, f.directory)), key=_depth
         )
