@@ -107,23 +107,26 @@ SAME_CONCEPT = _binary(
     "same_concept",
     "The state holds two differently spelled nouns from one codebase, with "
     "their definitions and where they are used. Are the two nouns names for "
-    "one and the same concept of the problem? Two types with the same "
-    "fields and the same role, one named for how it is stored or carried "
-    "(Record, Row, Doc, DTO, Entry, Model) and the other for the domain, "
-    "are one concept spelled twice: answer yes. Answer no only when the "
-    "two mean different things in the problem.",
+    "one and the same concept of the problem? Judge by meaning and role, "
+    "not by the names: two types that carry the same information for the "
+    "same purpose are one concept spelled twice, whatever their names (a "
+    "storage or transport twin of a domain type is the usual case). Fields "
+    "that differ only incidentally do not make two concepts. Answer no "
+    "when the two mean different things in the problem, or carry different "
+    "information for different purposes.",
 )
 SCATTERED_POLICY = _binary(
     "scattered_policy",
     "The state holds conditionals in different units that branch on the "
     "same expression, with their units. Do they together make one decision "
     "of the problem that is spread across the units instead of being made "
-    "once, in one named policy? Only a business rule of the problem's "
-    "domain counts. A presentation or configuration flag (verbosity, "
-    "colour, an output format), a guard on an empty collection or a "
-    "missing value, or a type's own methods checking that type's own state "
-    "is not a scattered policy, however often it repeats: answer no for "
-    "those.",
+    "once, in one named policy? Judge by what the branches decide, not by "
+    "what the expression is called: a flag, mode or setting that changes "
+    "an outcome of the problem (what is valid, what is allowed, what "
+    "something costs) is a decision of the problem. A branch that only "
+    "changes how output is shown or logged, or only guards against an "
+    "empty or missing value before using it, decides nothing of the "
+    "problem: answer no for those.",
 )
 INVARIANT_BROKEN = _binary(
     "invariant_broken",
@@ -135,22 +138,24 @@ RULES_ELSEWHERE = _binary(
     "rules_elsewhere",
     "The state holds a type that is only fields, and the units outside it "
     "that compute over those fields. Do those units hold rules that belong "
-    "to the type itself? A computation that reads only the type's own "
-    "fields and answers something about a value of that type (its length, "
-    "its total, whether it overlaps or equals another of its kind, whether "
-    "it is valid) is a rule that belongs to the type, wherever it is "
-    "written: answer yes. Answer no only when the computation needs more "
-    "than the type knows: other types' rules, I/O, or a policy of the "
-    "problem.",
+    "to the type itself? Judge by what each unit reads and decides, not by "
+    "its signature: one that reads only the type's own fields and decides "
+    "something about a value of that type (its length, its total, whether "
+    "it overlaps another of its kind, whether it is valid) is a rule that "
+    "belongs to the type, and a parameter it does not use changes nothing. "
+    "Answer no when it needs more than the type knows (another type's "
+    "rules, I/O, a policy the type cannot own), or when it only presents "
+    "or serialises the value (formatting, rendering, encoding).",
 )
 THEN_ASSERTED = Question(
     "then_asserted",
     QuestionKind.SCORE,
     DATA_ONLY + "The state holds one design behavior (Given / When / Then) and "
     "a test of it. How fully does the test assert the outcome its Then "
-    "clause states? An assertion only that a value exists, is not None, is "
-    "truthy, or has some type says nothing about the Then's outcome and "
-    "counts as not asserted.",
+    "clause states? An assertion that a wrong outcome would also satisfy "
+    "(that a value exists, is not None, is truthy, has some type, is not "
+    "empty) does not assert the Then's outcome, unless the Then states "
+    "no more than that.",
     ("not asserted", "partly", "fully"),
     criteria=(
         "the test asserts nothing about the Then's outcome, at most that "
