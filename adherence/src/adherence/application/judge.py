@@ -22,8 +22,7 @@ from adherence.application.latch import (
     latched_analyzers,
 )
 from adherence.application.load import (
-    Loaded,
-    governed_by,
+    read_as_one,
     read_declarations,
     read_file,
 )
@@ -45,7 +44,6 @@ from adherence.domain.declaration import (
     DECLARATION_PATH,
     CodeOwners,
     Declaration,
-    DeclarationFile,
     DeclarationText,
     DeclarationUnreadable,
     LandedRevision,
@@ -261,7 +259,7 @@ class _InForce:
     declaration: Declaration | DeclarationUnreadable
     notices: tuple[Notice, ...] = ()
     coverage: tuple[Coverage, ...] = ()
-    files: tuple[tuple[str, DeclarationFile], ...] = ()
+    files: tuple[tuple[str, Declaration], ...] = ()
     walked: frozenset[str] = frozenset()
 
 
@@ -388,7 +386,7 @@ def _declaration_in_force(
     paths = _landed_declarations(base, repository, deadline)
     if isinstance(paths, _InForce):
         return paths
-    files: list[tuple[str, DeclarationFile]] = []
+    files: list[tuple[str, Declaration]] = []
     coverage: list[Coverage] = []
     walked: set[str] = set()
     for path in paths:
@@ -410,7 +408,7 @@ def _declaration_in_force(
             return _InForce(read, tuple(walk.notices), tuple(coverage))
         if read is not None:
             files.append((path, read))
-    declaration = governed_by(
+    declaration = read_as_one(
         [f for _, f in files], base, repository=repository, deadline=deadline
     )
     return _InForce(
@@ -424,7 +422,7 @@ def _declaration_in_force(
 
 def _proposed(
     in_force: _InForce,
-    head: Loaded,
+    head: tuple[tuple[str, Declaration | DeclarationUnreadable], ...],
     at: Head,
     repository: RepositoryPort,
     deadline: Deadline | None,
@@ -433,14 +431,8 @@ def _proposed(
     only declaration a widening is taken from, since a file new at the head
     governs from the next change."""
     kept = {path for path, _ in in_force.files}
-    mine = [(path, read) for path, read in head.files if path in kept]
-    unreadable = next(
-        (r for _, r in mine if isinstance(r, DeclarationUnreadable)), None
-    )
-    if unreadable is not None:
-        return unreadable
-    return governed_by(
-        [r for _, r in mine if isinstance(r, DeclarationFile)],
+    return read_as_one(
+        [read for path, read in head if path in kept],
         at,
         repository=repository,
         deadline=deadline,
@@ -449,7 +441,8 @@ def _proposed(
 
 def _file_notices(
     in_force: _InForce,
-    head: Loaded,
+    head: tuple[tuple[str, Declaration | DeclarationUnreadable], ...],
+    merged: Declaration | DeclarationUnreadable,
     paths: Collection[str],
     created: Collection[str],
 ) -> tuple[Notice, ...]:
@@ -459,19 +452,16 @@ def _file_notices(
     force the head deletes; and the head's files read as one, when only
     that cannot be read."""
     before = dict(in_force.files)
-    after = dict(head.files)
+    after = dict(head)
     notices: list[Notice] = []
     for path in sorted({*before, *after}, key=lambda p: (p.count("/"), p)):
         was, now = before.get(path), after.get(path)
         if was is not None and now is not None:
-            proposed = (
-                now if isinstance(now, DeclarationUnreadable) else now.declaration
-            )
             notices.extend(
                 Notice(f"{path}: {n.message}")
                 for n in edit_notices(
-                    in_force=was.declaration,
-                    proposed=proposed,
+                    in_force=was,
+                    proposed=now,
                     paths=paths,
                     created=created,
                 )
@@ -494,14 +484,12 @@ def _file_notices(
                     f"{path}: a new declaration governs from the next change{unread}"
                 )
             )
-    every_file_reads = not any(
-        isinstance(r, DeclarationUnreadable) for _, r in head.files
-    )
-    if isinstance(head.declaration, DeclarationUnreadable) and every_file_reads:
+    every_file_reads = not any(isinstance(r, DeclarationUnreadable) for _, r in head)
+    if isinstance(merged, DeclarationUnreadable) and every_file_reads:
         notices.append(
             Notice(
                 "the change's own declaration cannot be read: "
-                f"{head.declaration.reason}; it is judged under the declaration "
+                f"{merged.reason}; it is judged under the declaration "
                 "in force"
             )
         )
@@ -669,10 +657,13 @@ def _judged(job: JudgeJob, finished: FinishedSink | None) -> Report:
             compared(base=Report(), head=head, change=change),
             repository=change.repository,
         )
-    head_loaded = read_declarations(
-        change.head, repository=repository, deadline=deadline
+    read = read_declarations(change.head, repository=repository, deadline=deadline)
+    head_files = () if isinstance(read, DeclarationUnreadable) else read
+    proposed = (
+        read
+        if isinstance(read, DeclarationUnreadable)
+        else _proposed(walked, head_files, change.head, repository, deadline)
     )
-    proposed = _proposed(walked, head_loaded, change.head, repository, deadline)
     declaration = widened(in_force=in_force, proposed=proposed, created=change.created)
     head = measuring.measure(change.head, declaration, finished)
     if head.not_run_reason is not None:
@@ -682,7 +673,18 @@ def _judged(job: JudgeJob, finished: FinishedSink | None) -> Report:
         )
     edits = (
         *_file_notices(
-            walked, head_loaded, {u.path for u in head.units}, change.created
+            walked,
+            head_files,
+            read
+            if isinstance(read, DeclarationUnreadable)
+            else read_as_one(
+                [r for _, r in head_files],
+                change.head,
+                repository=repository,
+                deadline=deadline,
+            ),
+            {u.path for u in head.units},
+            change.created,
         ),
         *_undeclared_creations(declaration, change.created),
     )

@@ -178,8 +178,26 @@ class Declaration:
     governed: tuple[str, ...] = ("",)
     record_scopes: tuple[tuple[str, RecordPaths], ...] = ()
     radar_scopes: tuple[tuple[str, str], ...] = ()
+    # One file read on its own: the sections it defines plainly and those
+    # it writes under [override]; empty once files are read as one.
+    defines: frozenset[str] = frozenset()
+    overrides: frozenset[str] = frozenset()
 
     none: ClassVar[Declaration]
+
+    @property
+    def directory(self) -> str:
+        """The directory of the first file it governs from ("" the root's)."""
+        return self.governed[0] if self.governed else ""
+
+    @property
+    def path(self) -> str:
+        """The declaration file it was read from, for one file."""
+        return _under(self.directory, DECLARATION_PATH)
+
+    def has(self, section: str) -> bool:
+        """Whether the file states the section, plainly or overriding."""
+        return section in self.defines or section in self.overrides
 
     def governs(self, path: str) -> bool:
         """Whether a governing declaration reaches the path."""
@@ -711,25 +729,6 @@ def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:
     )
 
 
-@dataclass(frozen=True, slots=True)
-class DeclarationFile:
-    """One adherence.toml read on its own: where it is, what it states with
-    every path made repository-root-relative, and which sections it defines
-    plainly and which it writes under [override]."""
-
-    path: str
-    declaration: Declaration
-    defines: frozenset[str] = frozenset()
-    overrides: frozenset[str] = frozenset()
-
-    @property
-    def directory(self) -> str:
-        return directory_of(self.path)
-
-    def has(self, section: str) -> bool:
-        return section in self.defines or section in self.overrides
-
-
 def directory_of(path: str) -> str:
     """The directory holding a repository path; "" for the root."""
     return path.rpartition("/")[0]
@@ -756,58 +755,62 @@ def _moved(exemption: Exemption, directory: str) -> Exemption:
     )
 
 
+def _named_paths(declaration: Declaration) -> tuple[str, ...]:
+    """Every path or glob a declaration names, as written."""
+    layers = declaration.layers
+    exemptions = (
+        *declaration.exemptions,
+        *(r.exemption for r in declaration.refused_exemptions),
+    )
+    records = declaration.records
+    return (
+        *(p for _, p in layers.globs),
+        *(r.path for r in layers.regions),
+        *layers.marker_files,
+        *(p for r in declaration.runtimes for p in r.patterns),
+        *(e.unit for e in exemptions if e.unit is not None),
+        *((records.design, records.architecture) if records else ()),
+        *((declaration.radar,) if declaration.radar else ()),
+    )
+
+
+def _moved_layers(layers: Layers, directory: str) -> Layers:
+    return Layers(
+        tuple((layer, _under(directory, p)) for layer, p in layers.globs),
+        tuple(replace(r, path=_under(directory, r.path)) for r in layers.regions),
+        tuple(_under(directory, p) for p in layers.marker_files),
+    )
+
+
+def _moved_records(records: RecordPaths | None, directory: str) -> RecordPaths | None:
+    if records is None:
+        return None
+    return RecordPaths(
+        _under(directory, records.design), _under(directory, records.architecture)
+    )
+
+
 def _relocated(
     declaration: Declaration, directory: str, name: str
 ) -> Declaration | DeclarationUnreadable:
     """The declaration with every path it names resolved under its file's
     directory, or why one escapes it."""
-    layers = declaration.layers
-    named = [
-        *(p for _, p in layers.globs),
-        *(r.path for r in layers.regions),
-        *layers.marker_files,
-        *(p for r in declaration.runtimes for p in r.patterns),
-        *(e.unit for e in declaration.exemptions if e.unit is not None),
-        *(
-            e.exemption.unit
-            for e in declaration.refused_exemptions
-            if e.exemption.unit is not None
-        ),
-        *(
-            (declaration.records.design, declaration.records.architecture)
-            if declaration.records
-            else ()
-        ),
-        *((declaration.radar,) if declaration.radar else ()),
-    ]
-    escaping = next((p for p in named if escapes(p)), None)
+    escaping = next((p for p in _named_paths(declaration) if escapes(p)), None)
     if escaping is not None:
         return DeclarationUnreadable(f"{name}: {escaping} {ESCAPES}")
-
-    at = directory
+    radar = declaration.radar
     return replace(
         declaration,
-        layers=Layers(
-            tuple((layer, _under(at, p)) for layer, p in layers.globs),
-            tuple(replace(r, path=_under(at, r.path)) for r in layers.regions),
-            tuple(_under(at, p) for p in layers.marker_files),
-        ),
-        exemptions=tuple(_moved(e, at) for e in declaration.exemptions),
+        layers=_moved_layers(declaration.layers, directory),
+        exemptions=tuple(_moved(e, directory) for e in declaration.exemptions),
         refused_exemptions=tuple(
-            replace(r, exemption=_moved(r.exemption, at))
+            replace(r, exemption=_moved(r.exemption, directory))
             for r in declaration.refused_exemptions
         ),
-        records=(
-            RecordPaths(
-                _under(at, declaration.records.design),
-                _under(at, declaration.records.architecture),
-            )
-            if declaration.records
-            else None
-        ),
-        radar=_under(at, declaration.radar) if declaration.radar else None,
+        records=_moved_records(declaration.records, directory),
+        radar=_under(directory, radar) if radar else None,
         runtimes=tuple(
-            Runtime(r.name, tuple(_under(at, p) for p in r.patterns), source=name)
+            Runtime(r.name, tuple(_under(directory, p) for p in r.patterns), name)
             for r in declaration.runtimes
         ),
         governed=(directory,),
@@ -894,7 +897,7 @@ def _stated(
     )
 
 
-def parse_file(path: str, text: bytes) -> DeclarationFile | DeclarationUnreadable:
+def parse_file(path: str, text: bytes) -> Declaration | DeclarationUnreadable:
     """One adherence.toml's bytes, read on their own: what they state with
     every path resolved under the file's directory, or why they cannot be
     read."""
@@ -911,7 +914,7 @@ def parse_file(path: str, text: bytes) -> DeclarationFile | DeclarationUnreadabl
     relocated = _relocated(stated, directory_of(path), path)
     if isinstance(relocated, DeclarationUnreadable):
         return relocated
-    return DeclarationFile(path, relocated, defines, overrides)
+    return replace(relocated, defines=defines, overrides=overrides)
 
 
 def parse_declaration(
@@ -929,14 +932,12 @@ def parse_declaration(
 # --- Governing declarations: the files read as one ---------------------------
 
 
-def _depth(file: DeclarationFile) -> tuple[int, str]:
+def _depth(file: Declaration) -> tuple[int, str]:
     directory = file.directory
     return (directory.count("/") + 1 if directory else 0, file.path)
 
 
-def _above(
-    file: DeclarationFile, files: Sequence[DeclarationFile]
-) -> list[DeclarationFile]:
+def _above(file: Declaration, files: Sequence[Declaration]) -> list[Declaration]:
     """The files governing the file's directory from above, nearest first."""
     return sorted(
         (
@@ -949,7 +950,7 @@ def _above(
     )
 
 
-def _illegal(files: Sequence[DeclarationFile]) -> DeclarationUnreadable | None:
+def _illegal(files: Sequence[Declaration]) -> DeclarationUnreadable | None:
     """The first section a file defines that a file above already defines,
     for a single-valued section, or overrides where nothing above defines
     it."""
@@ -972,7 +973,7 @@ def _illegal(files: Sequence[DeclarationFile]) -> DeclarationUnreadable | None:
 
 
 def _voiding(
-    file: DeclarationFile, section: str, files: Sequence[DeclarationFile]
+    file: Declaration, section: str, files: Sequence[Declaration]
 ) -> tuple[str, ...]:
     """The subtrees below the file where a nearer file overrides the
     section, so the file's entries for it do not apply there."""
@@ -1007,13 +1008,13 @@ def _merged_exemptions(exemptions: Sequence[Exemption]) -> tuple[Exemption, ...]
     return tuple(merged.values())
 
 
-def _layers_merged(files: Sequence[DeclarationFile]) -> Layers:
+def _layers_merged(files: Sequence[Declaration]) -> Layers:
     globs: list[tuple[Layer, str]] = []
     voided: list[tuple[int, str]] = []
     regions: list[Region] = []
     markers: list[str] = []
     for file in files:
-        layers = file.declaration.layers
+        layers = file.layers
         cut = _voiding(file, "layers", files)
         for glob in layers.globs:
             voided.extend((len(globs), d) for d in cut)
@@ -1027,8 +1028,8 @@ def _layers_merged(files: Sequence[DeclarationFile]) -> Layers:
     return Layers(tuple(globs), tuple(regions), tuple(markers), (), tuple(voided))
 
 
-def _vocabulary_merged(files: Sequence[DeclarationFile]) -> VocabularyExtension:
-    extensions = [f.declaration.vocabulary for f in files]
+def _vocabulary_merged(files: Sequence[Declaration]) -> VocabularyExtension:
+    extensions = [f.vocabulary for f in files]
     return VocabularyExtension(
         tuple(w for e in extensions for w in e.words),
         tuple(r for e in extensions for r in e.regions),
@@ -1036,19 +1037,18 @@ def _vocabulary_merged(files: Sequence[DeclarationFile]) -> VocabularyExtension:
     )
 
 
-def _assigned(path: str, file: DeclarationFile) -> frozenset[Layer]:
+def _assigned(path: str, file: Declaration) -> frozenset[Layer]:
     """The layers one file assigns a real path by its own precedence: its
     regions of the file, else its glob or literal assignment."""
-    declaration = file.declaration
-    regions = frozenset(r.layer for r in declaration.layers.regions if r.path == path)
+    regions = frozenset(r.layer for r in file.layers.regions if r.path == path)
     if regions:
         return regions
-    layer = layer_of(path, None, declaration)
+    layer = layer_of(path, None, file)
     return frozenset() if layer is None else frozenset({layer})
 
 
 def _conflict(
-    files: Sequence[DeclarationFile], tree: Collection[str]
+    files: Sequence[Declaration], tree: Collection[str]
 ) -> DeclarationUnreadable | None:
     """The first real path two governing files place in two layers, with
     no [override.layers] between them."""
@@ -1073,8 +1073,53 @@ def _named(layers: frozenset[Layer]) -> str:
     return ", ".join(sorted(layer.value for layer in layers))
 
 
+def _record_scopes(
+    ordered: Sequence[Declaration],
+) -> tuple[tuple[str, RecordPaths], ...]:
+    return tuple(
+        (f.directory, records)
+        for f in ordered
+        if f.directory and (records := f.records) is not None
+    )
+
+
+def _radar_scopes(ordered: Sequence[Declaration]) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (f.directory, radar)
+        for f in ordered
+        if f.directory and (radar := f.radar) is not None
+    )
+
+
+def _read_as_one(ordered: Sequence[Declaration]) -> Declaration:
+    """Files with no conflict among them, root first, merged."""
+    root = next((f for f in ordered if f.directory == ""), Declaration(records=None))
+    return Declaration(
+        layers=_layers_merged(ordered),
+        exemptions=_merged_exemptions(
+            [
+                replace(e, outside=_voiding(f, "exemptions", ordered))
+                for f in ordered
+                for e in f.exemptions
+            ]
+        ),
+        refused_exemptions=tuple(r for f in ordered for r in f.refused_exemptions),
+        vocabulary=_vocabulary_merged(ordered),
+        records=root.records,
+        radar=root.radar,
+        runtimes=tuple(
+            replace(r, outside=_voiding(f, "runtimes", ordered))
+            for f in ordered
+            for r in f.runtimes
+        ),
+        governed=tuple(f.directory for f in ordered),
+        record_scopes=_record_scopes(ordered),
+        radar_scopes=_radar_scopes(ordered),
+    )
+
+
 def governing_declarations(
-    files: Sequence[DeclarationFile], tree: Collection[str]
+    files: Sequence[Declaration], tree: Collection[str]
 ) -> Declaration | DeclarationUnreadable:
     """The declaration files read as one (DESIGN.ARCH-ADHERENCE.md, The
     declaration): layers, runtimes, exemptions and vocabulary a union, each
@@ -1090,41 +1135,7 @@ def governing_declarations(
     refused = _illegal(ordered) or (
         _conflict(ordered, tree) if len(ordered) > 1 else None
     )
-    if refused is not None:
-        return refused
-    root = next((f for f in ordered if f.directory == ""), None)
-    return Declaration(
-        layers=_layers_merged(ordered),
-        exemptions=_merged_exemptions(
-            [
-                replace(e, outside=_voiding(f, "exemptions", ordered))
-                for f in ordered
-                for e in f.declaration.exemptions
-            ]
-        ),
-        refused_exemptions=tuple(
-            r for f in ordered for r in f.declaration.refused_exemptions
-        ),
-        vocabulary=_vocabulary_merged(ordered),
-        records=root.declaration.records if root else None,
-        radar=root.declaration.radar if root else None,
-        runtimes=tuple(
-            replace(r, outside=_voiding(f, "runtimes", ordered))
-            for f in ordered
-            for r in f.declaration.runtimes
-        ),
-        governed=tuple(f.directory for f in ordered),
-        record_scopes=tuple(
-            (f.directory, f.declaration.records)
-            for f in ordered
-            if f.directory and f.declaration.records is not None
-        ),
-        radar_scopes=tuple(
-            (f.directory, f.declaration.radar)
-            for f in ordered
-            if f.directory and f.declaration.radar is not None
-        ),
-    )
+    return refused if refused is not None else _read_as_one(ordered)
 
 
 # --- The declaration in force: approval counting -----------------------------

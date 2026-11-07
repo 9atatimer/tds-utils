@@ -19,7 +19,6 @@ from adherence.application.measure import measure
 from adherence.domain.coverage import UNDECLARED_SUBTREE
 from adherence.domain.declaration import (
     Declaration,
-    DeclarationFile,
     governing_declarations,
     parse_file,
 )
@@ -60,9 +59,9 @@ SCENARIO = "Given an open order, When it is closed, Then the store holds it clos
 
 def _declaration(files: Mapping[str, bytes]) -> Declaration:
     parsed = [parse_file(path, text) for path, text in files.items()]
-    assert all(isinstance(p, DeclarationFile) for p in parsed), parsed
+    assert all(isinstance(p, Declaration) for p in parsed), parsed
     merged = governing_declarations(
-        [p for p in parsed if isinstance(p, DeclarationFile)], ()
+        [p for p in parsed if isinstance(p, Declaration)], ()
     )
     assert isinstance(merged, Declaration), merged
     return merged

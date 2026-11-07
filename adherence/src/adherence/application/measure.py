@@ -483,6 +483,39 @@ def _record_scopes(
     return tuple(scopes)
 
 
+def _scoped_inputs(
+    model: CodeModel,
+    declaration: Declaration,
+    records: RecordsPort,
+    at: Base | Head,
+    deadline: Deadline | None,
+) -> tuple[
+    tuple[RecordScope, ...],
+    DesignRecords | RecordsUnavailable,
+    Radar | RecordsUnavailable,
+]:
+    """The records scopes, when the model's files name two or more, and the
+    records and radar the run's checks are given."""
+    scopes = _record_scopes(model, declaration, records, at, deadline)
+    if scopes:
+        return scopes, scopes[0].records, scopes[0].radar
+    design, tech = _design_inputs(records, at, declaration, deadline)
+    return scopes, design, tech
+
+
+def _governed(
+    paths: tuple[str, ...], declaration: Declaration
+) -> tuple[tuple[str, ...], tuple[Coverage, ...]]:
+    """The paths a governing declaration reaches, and the coverage of each
+    it does not: a path in an undeclared subtree has no adherence, so it is
+    never modelled, no check reads it and Covered never names it. Every
+    path of an undeclared repository is read as before."""
+    if not declaration.declared:
+        return paths, ()
+    governed = tuple(p for p in paths if declaration.governs(p))
+    return governed, undeclared_subtree(sorted(set(paths) - set(governed)))
+
+
 def _bodies(model: CodeModel) -> tuple[BodyDigest, ...]:
     """Each named definition's body digest, by which a rename is told."""
     return tuple(
@@ -539,15 +572,8 @@ def measure_reporting(
     paths = _listed(repository.tree(at, deadline), analyzers, identity, at)
     if isinstance(paths, Report):
         return paths
-    # A path no governing declaration reaches has no adherence: it is never
-    # modelled, so no check reads it and Covered never names it.
-    ungoverned = undeclared_subtree(
-        [p for p in paths if declaration.declared and not declaration.governs(p)]
-    )
+    paths, ungoverned = _governed(paths, declaration)
     reported(ungoverned, finished)
-    paths = tuple(
-        p for p in paths if not declaration.declared or declaration.governs(p)
-    )
     modelled = _with_metrics(
         _languages_modelled(
             paths,
@@ -568,12 +594,8 @@ def measure_reporting(
         merged(modelled.models),
         {path: CodeLanguage.SHELL.value for path in modelled.shell},
     )
-    latched_records = LatchedRecords(records, latch)
-    scopes = _record_scopes(whole, declaration, latched_records, at, deadline)
-    design, tech = (
-        (scopes[0].records, scopes[0].radar)
-        if scopes
-        else _design_inputs(latched_records, at, declaration, deadline)
+    scopes, design, tech = _scoped_inputs(
+        whole, declaration, LatchedRecords(records, latch), at, deadline
     )
     reported(unmodelled(whole, declared=declaration.declared), finished)
     sources, unmeasured_checks = modelled.sources, modelled.unmeasured_checks

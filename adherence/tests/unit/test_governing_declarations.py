@@ -12,7 +12,6 @@ import pytest
 
 from adherence.domain.declaration import (
     Declaration,
-    DeclarationFile,
     DeclarationUnreadable,
     governing_declarations,
     layer_of,
@@ -33,9 +32,9 @@ architecture = "docs/ARCHITECTURE.md"
 """
 
 
-def _file(path: str, text: bytes) -> DeclarationFile:
+def _file(path: str, text: bytes) -> Declaration:
     parsed = parse_file(path, text)
-    assert isinstance(parsed, DeclarationFile), parsed
+    assert isinstance(parsed, Declaration), parsed
     return parsed
 
 

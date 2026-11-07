@@ -9,13 +9,11 @@ passes a DeclarationUnreadable through; measure is its one owner.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
     DECLARATION_PATH,
     Declaration,
-    DeclarationFile,
     DeclarationUnreadable,
     governing_declarations,
     parse_file,
@@ -24,19 +22,11 @@ from adherence.domain.target import Base, Head
 from adherence.ports.repository import Absent, Refused, RepositoryPort
 
 
-@dataclass(frozen=True, slots=True)
-class Loaded:
-    """Each declaration file at a target as read, by path, and all of them
-    read as one."""
-
-    files: tuple[tuple[str, DeclarationFile | DeclarationUnreadable], ...]
-    declaration: Declaration | DeclarationUnreadable
-
-
 def read_file(
     path: str, at: Base | Head, *, repository: RepositoryPort, deadline: Deadline | None
-) -> DeclarationFile | DeclarationUnreadable | None:
-    """One declaration file at the target, None where it is absent."""
+) -> Declaration | DeclarationUnreadable | None:
+    """One declaration file at the target, read on its own; None where it
+    is absent."""
     text = repository.read(path, at, deadline)
     if isinstance(text, Absent):
         return None
@@ -47,17 +37,23 @@ def read_file(
     return parse_file(path, text)
 
 
-def governed_by(
-    files: Sequence[DeclarationFile],
+def read_as_one(
+    files: Sequence[Declaration | DeclarationUnreadable],
     at: Base | Head,
     *,
     repository: RepositoryPort,
     deadline: Deadline | None,
 ) -> Declaration | DeclarationUnreadable:
-    """The files read as one, their layer conflicts judged over the
-    target's tree, which is listed only when two or more could conflict."""
-    if len(files) < 2:
-        return governing_declarations(files, ())
+    """The files read as one: the first that cannot be read, or the
+    governing declarations, their layer conflicts judged over the target's
+    tree, which is listed only when two or more files could conflict."""
+    read: list[Declaration] = []
+    for file in files:
+        if isinstance(file, DeclarationUnreadable):
+            return file
+        read.append(file)
+    if len(read) < 2:
+        return governing_declarations(read, ())
     tree = repository.tree(at, deadline)
     if isinstance(tree, Refused):
         return DeclarationUnreadable(
@@ -65,38 +61,27 @@ def governed_by(
         )
     if isinstance(tree, TimedOut):
         return DeclarationUnreadable(f"{tree.operation}: timed out")
-    return governing_declarations(files, tree)
+    return governing_declarations(read, tree)
 
 
 def read_declarations(
     at: Base | Head, *, repository: RepositoryPort, deadline: Deadline | None
-) -> Loaded:
-    """Every adherence.toml at the target as read, and the governing
-    declarations they make: Declaration.none when there is none; the first
-    file that cannot be read, or the merge's refusal, as
-    DeclarationUnreadable."""
+) -> (
+    tuple[tuple[str, Declaration | DeclarationUnreadable], ...] | DeclarationUnreadable
+):
+    """Every adherence.toml at the target, each read on its own, by path;
+    DeclarationUnreadable when they cannot be listed."""
     found = repository.find(DECLARATION_PATH, at, deadline)
     if isinstance(found, Refused):
-        return Loaded(
-            (), DeclarationUnreadable(f"{found.path} refused: {found.reason}")
-        )
+        return DeclarationUnreadable(f"{found.path} refused: {found.reason}")
     if isinstance(found, TimedOut):
-        return Loaded((), DeclarationUnreadable(f"{found.operation}: timed out"))
-    files: list[tuple[str, DeclarationFile | DeclarationUnreadable]] = []
+        return DeclarationUnreadable(f"{found.operation}: timed out")
+    files: list[tuple[str, Declaration | DeclarationUnreadable]] = []
     for path in found:
         read = read_file(path, at, repository=repository, deadline=deadline)
         if read is not None:
             files.append((path, read))
-    unreadable = next(
-        (f for _, f in files if isinstance(f, DeclarationUnreadable)), None
-    )
-    if unreadable is not None:
-        return Loaded(tuple(files), unreadable)
-    parsed = [f for _, f in files if isinstance(f, DeclarationFile)]
-    return Loaded(
-        tuple(files),
-        governed_by(parsed, at, repository=repository, deadline=deadline),
-    )
+    return tuple(files)
 
 
 def load_declaration(
@@ -108,4 +93,9 @@ def load_declaration(
     Declaration.none when the target has none; DeclarationUnreadable,
     naming why, when one cannot be read or parsed or they conflict.
     """
-    return read_declarations(at, repository=repository, deadline=deadline).declaration
+    files = read_declarations(at, repository=repository, deadline=deadline)
+    if isinstance(files, DeclarationUnreadable):
+        return files
+    return read_as_one(
+        [read for _, read in files], at, repository=repository, deadline=deadline
+    )
