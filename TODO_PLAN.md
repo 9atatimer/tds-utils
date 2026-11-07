@@ -270,14 +270,17 @@ running the adapter against GitHub, not by any test. Second component; the propo
 Recurred 2026-11-07, the third time, in the same adapter's fake: tds-utils
 PR#708 gave `ReviewPort.approvals` a `path` parameter and `FakeReviews`
 accepted it and ignored it, so removing `path=path` from the judge's call
-left every test green (the self-review panel's mutation). The mechanism is
-the same each time: a fake that passes what the port contract carries
-without asserting it, and a contract suite that never names the new
-argument. Three components make the skill change the deliverable:
-proposed as Skills Issue#180 (the fake records every argument the
-contract names and the contract suite runs against fake and adapter
-alike; one smoke against the real dependency per adapter before its first
-merge). This entry graduates (about: skill:testing) when that lands.
+left every test green (the self-review panel's mutation). The mechanism
+differs from the first two, which were real-environment behaviours no fake
+modelled; here the fake modelled the contract and did not assert it. What
+the three share is a suite that cannot tell the fake from the dependency
+it stands in for. Three occurrences across two components are what the
+retrospective skill says makes the skill change, not another lesson, the
+deliverable: proposed as Skills Issue#180 (the fake records every
+argument the contract names and the contract suite runs against fake and
+adapter alike; one smoke against the real dependency per adapter before
+its first merge). This entry graduates (about: skill:testing) when that
+lands.
 
 ### Two sessions fixed one issue in parallel
 

@@ -369,10 +369,11 @@ Issue#590). Two things to know before you measure locally:
   runs the old engine against the new workflow and dies on an unknown
   option (`No such option '--stage'`, PR#676, 2026-11-06). Merge master
   into the branch; nothing on the branch is wrong.
-- A new application function needs a row with its signature in the
-  architecture record's Use-case surface table, or Public surface flags
-  every test that calls it: the check reads the use cases from that
-  table's signatures, not from the module map (PR#708, `check_declarations`).
+- A new application function needs a row in the architecture record's
+  Use-case surface (its signature, or at least its name), or Public
+  surface flags every test that calls it: the check reads the use cases
+  from that section, not from the module map. PR#708 hit it when
+  `check_declarations` had no row.
 
 ## Infrastructure
 
