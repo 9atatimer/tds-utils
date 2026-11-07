@@ -161,3 +161,43 @@ def test_load_declaration_names_the_sub_project_file_that_cannot_be_parsed() -> 
 
     assert isinstance(loaded, DeclarationUnreadable)
     assert "pkg/adherence.toml" in loaded.reason
+
+
+def test_a_declaration_file_under_a_declared_test_layer_is_test_data() -> None:
+    """Given a root declaration placing tests/** in the test layer and an
+    unreadable adherence.toml in a fixture under it, When the declaration
+    is loaded, Then the fixture's file is never read as a declaration: the
+    root alone governs, and the fixture is under it."""
+    repository = FakeRepository(
+        {
+            HEAD: {
+                DECLARATION_PATH: b'[layers]\ntest = ["tests/**"]\n',
+                "tests/fixtures/broken/adherence.toml": b"[layers\n",
+            }
+        }
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, Declaration), loaded
+    assert loaded.governed == ("",)
+    assert ("tests/fixtures/broken/adherence.toml", HEAD) not in repository.reads
+
+
+def test_the_same_file_outside_any_test_layer_is_a_declaration() -> None:
+    """Given the same unreadable adherence.toml where no declaration above
+    places it in the test layer, When the declaration is loaded, Then it is
+    read as a declaration, and cannot be read."""
+    repository = FakeRepository(
+        {
+            HEAD: {
+                DECLARATION_PATH: b'[layers]\ntest = ["tests/**"]\n',
+                "lib/fixtures/broken/adherence.toml": b"[layers\n",
+            }
+        }
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, DeclarationUnreadable)
+    assert "lib/fixtures/broken/adherence.toml" in loaded.reason

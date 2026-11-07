@@ -50,7 +50,9 @@ from adherence.domain.declaration import (
     Landing,
     RecordPaths,
     counted_landing,
+    depth_first,
     directory_of,
+    is_test_data,
     owner_notices,
     parse_codeowners,
     widened,
@@ -367,7 +369,7 @@ def _landed_declarations(
                 DECLARATION_PATH,
             )
         paths.update(listed)
-    return sorted(paths, key=lambda p: (p.count("/"), p))
+    return depth_first(paths)
 
 
 def _declaration_in_force(
@@ -379,7 +381,9 @@ def _declaration_in_force(
     """Each adherence.toml the base's history landed, settled in force on
     its own: the newest landing domain/declaration counts, read at that
     commit (a counted deletion governs nothing); a file with none governs
-    nothing and is a notice, with coverage. The files in force are read as
+    nothing and is a notice, with coverage. A file a declaration in force
+    above it places in the test layer is test data: never walked, never a
+    notice. The files in force are read as
     one over the base's tree. A TimedOut from any port ends the walk there,
     with no port call after it, and the repository is judged undeclared."""
     walk = _Walk(base, repository, reviews, deadline, [])
@@ -390,6 +394,8 @@ def _declaration_in_force(
     coverage: list[Coverage] = []
     walked: set[str] = set()
     for path in paths:
+        if is_test_data(path, [f for _, f in files]):
+            continue
         commit = walk.in_force(path)
         if isinstance(commit, TimedOut):
             return _undeclared(

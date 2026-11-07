@@ -178,3 +178,24 @@ def test_an_edit_to_a_sub_project_declaration_is_a_notice_naming_it() -> None:
     assert any(
         n.startswith("pkg/adherence.toml: [layers] edited") for n in _notices(report)
     ), _notices(report)
+
+
+def test_a_fixture_declaration_under_the_test_layer_is_never_settled() -> None:
+    """Given a root declaration placing tests/** in the test layer, in force,
+    and an unreadable fixture adherence.toml under it with landings of its
+    own, When a change is judged, Then the fixture is neither in force, nor
+    a notice, nor coverage: the root alone governs."""
+    root = b'[layers]\ntest = ["tests/**"]\ndomain = ["src/domain/**"]\n'
+    fixture = "tests/fixtures/broken/adherence.toml"
+    base = {fixture: b"[layers\n", "src/domain/r.py": CLEAN}
+
+    report = judge_with(
+        base,
+        {**base, "src/domain/new.py": CLEAN},
+        root=root,
+        histories={fixture: (BASE.revision,)},
+    )
+
+    assert report.not_run_reason is None, report.not_run_reason
+    assert not any(fixture in n for n in _notices(report)), _notices(report)
+    assert not any(c.path == fixture for c in report.coverage)

@@ -15,7 +15,9 @@ from adherence.domain.declaration import (
     DECLARATION_PATH,
     Declaration,
     DeclarationUnreadable,
+    depth_first,
     governing_declarations,
+    is_test_data,
     parse_file,
 )
 from adherence.domain.target import Base, Head
@@ -69,15 +71,20 @@ def read_declarations(
 ) -> (
     tuple[tuple[str, Declaration | DeclarationUnreadable], ...] | DeclarationUnreadable
 ):
-    """Every adherence.toml at the target, each read on its own, by path;
-    DeclarationUnreadable when they cannot be listed."""
+    """Every adherence.toml at the target, each read on its own, by path,
+    root first; a file a declaration above it places in the test layer is
+    test data and never read; DeclarationUnreadable when they cannot be
+    listed."""
     found = repository.find(DECLARATION_PATH, at, deadline)
     if isinstance(found, Refused):
         return DeclarationUnreadable(f"{found.path} refused: {found.reason}")
     if isinstance(found, TimedOut):
         return DeclarationUnreadable(f"{found.operation}: timed out")
     files: list[tuple[str, Declaration | DeclarationUnreadable]] = []
-    for path in found:
+    for path in depth_first(found):
+        above = [f for _, f in files if isinstance(f, Declaration)]
+        if is_test_data(path, above):
+            continue
         read = read_file(path, at, repository=repository, deadline=deadline)
         if read is not None:
             files.append((path, read))

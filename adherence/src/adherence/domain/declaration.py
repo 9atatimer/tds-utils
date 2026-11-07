@@ -737,6 +737,25 @@ def directory_of(path: str) -> str:
     return path.rpartition("/")[0]
 
 
+def is_test_data(path: str, above: Sequence[Declaration]) -> bool:
+    """Whether a file named like a declaration is test data: a declaration
+    above it, already read, assigns its path to the test layer. It is then
+    never a declaration -- not discovered, settled, merged or a notice."""
+    directory = directory_of(path)
+    return any(
+        d.directory != directory
+        and is_under(directory, d.directory)
+        and layer_of(path, None, d) is Layer.TEST
+        for d in above
+    )
+
+
+def depth_first(paths: Collection[str]) -> list[str]:
+    """Declaration paths root first, then by depth, then by name: the order
+    in which a file's declarations above it are read before it."""
+    return sorted(paths, key=lambda p: (p.count("/"), p))
+
+
 def escapes(path: str) -> bool:
     """Whether a path a declaration names leaves the declaration's
     directory: a leading slash, or any `..` segment."""
