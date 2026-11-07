@@ -75,6 +75,17 @@ test_inert() {
         "$(classify "${d}" tasks/task-001.md .github/copilot-instructions.md)"
     assert_eq "docs/**/*.html diagram" "$(only)" "$(classify "${d}" docs/arch/ocr-review/ocr-review.html)"
     assert_eq "empty diff" "$(only)" "$(classify "${d}")"
+    assert_eq "path-scoped Copilot instructions (.github/instructions/*.md)" "$(only)" \
+        "$(classify "${d}" .github/instructions/agent-global.instructions.md)"
+}
+
+test_operating_rules() {
+    local d="${WORKROOT}/empty"
+    mkdir -p "${d}"
+    printf 'The global agent file is operating rules, not prose
+'
+    assert_eq "clai.d/AGENT.global.md runs its smoketest" "$(only smoketests)" \
+        "$(classify "${d}" clai.d/AGENT.global.md)"
 }
 
 test_catch_all() {
@@ -253,6 +264,7 @@ test_github_output() {
 main() {
     WORKROOT="$(mktemp -d)"
     test_inert
+    test_operating_rules
     test_catch_all
     test_trees
     test_shebang
