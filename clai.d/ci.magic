@@ -1,0 +1,38 @@
+---
+include: ["AGENT.global.md"]
+---
+=== assertion ===
+---
+name: Global agent file keeps its rules
+---
+AGENT.global.md is the instruction file loaded into every agent session on
+this machine. Compare it against the PR base with git. Check that every
+prohibition and requirement (never / always / must / do not, and each bullet
+in "The hard rules, at a glance") present in the base is still present in
+the head with the same boundary, or that the head moved it to a clearly
+equivalent place. A rule that was deleted, softened ("never" to "prefer"),
+narrowed, or given a new exception is a violation unless the head states the
+same boundary elsewhere. Rewording, reordering and deduplication that keep
+the boundary are fine. Name each lost or weakened rule and the section it
+left.
+
+=== assertion ===
+---
+name: Global agent file at-a-glance list matches its sections
+---
+In AGENT.global.md, "The hard rules, at a glance" is a summary of the
+sections below it. Check that every bullet in it is stated by some section,
+with the same meaning, and that no section states a hard never/always rule
+that the list omits. A bullet that says more or less than its section is a
+violation. Name the bullet or section that disagrees.
+
+=== assertion ===
+---
+name: Global agent file carries no incident anecdotes
+severity_cap: warn
+---
+AGENT.global.md should state rules and the failure each one prevents, not
+retell incidents. Flag newly added text in the head (versus the PR base) that
+narrates a specific past event: a dated story, a PR or issue number cited as
+the occasion, or a blow-by-blow of who did what. One clause naming the
+failure a rule prevents is fine. Name the passage.
