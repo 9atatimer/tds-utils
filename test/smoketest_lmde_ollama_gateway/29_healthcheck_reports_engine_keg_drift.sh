@@ -41,6 +41,10 @@ main() {
     assert_contains "${out}" "${FAKE_KEG}" "names the current keg"
     assert_contains "${out}" "kickstart -k" "names the restart"
 
+    status=0; out="$(run_healthcheck "OLLAMA_GATEWAY_TREE=${TREE}")" || status=$?
+    assert_eq "${status}" "0" "a keg that exists, with no ollama on PATH, is no evidence of drift; output: ${out}"
+    assert_contains "${out}" "external-ollama: OK" "existing keg, no ollama on PATH"
+
     echo "${WORK}/removed-keg" > "${record}"
     status=0; out="$(run_healthcheck "OLLAMA_GATEWAY_TREE=${TREE}")" || status=$?
     [[ "${status}" -ne 0 ]] || fail "an engine whose keg is gone must be DEGRADED, even with no ollama on PATH; output: ${out}"

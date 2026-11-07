@@ -4,9 +4,12 @@
 # keg-watch LaunchAgent is loaded that runs the installed watcher whenever
 # the directory holding `ollama` or the directory holding its kegs changes
 # -- the two places a Homebrew upgrade relinks and cleans up -- so the
-# engine is restarted onto the new keg (Issue#709). It does not run at
-# load and is not kept alive: it is event-driven, never on a clock.
+# engine is restarted onto the new keg (Issue#709). It has no RunAtLoad,
+# KeepAlive or interval: it is event-driven, never on a clock (launchd
+# still runs a WatchPaths job once at bootstrap, a harmless catch-up).
 # When the gateway is uninstalled, Then the agent is unloaded and removed.
+# Given no ollama on PATH, When the gateway is installed, Then the watcher
+# is not installed, a stale one is removed, and the install says so.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
@@ -39,6 +42,12 @@ main() {
     out="$(run_setup uninstall)" || fail "uninstall failed: ${out}"
     [[ ! -e "${p}" ]] || fail "keg-watch plist left behind"
     assert_contains "$(cat "${WORK}/launchctl.log")" "bootout gui/$(id -u)/${WATCH_LABEL}" "keg-watch unloaded"
+
+    mkdir -p "$(dirname "${p}")"
+    echo "stale" > "${p}"
+    out="$(run_setup)" || fail "install without ollama must still succeed: ${out}"
+    [[ ! -e "${p}" ]] || fail "a stale keg-watch plist survived an install without ollama"
+    assert_contains "${out}" "${WATCH_LABEL} NOT installed" "the install says the watcher was skipped"
 }
 
 main "$@"

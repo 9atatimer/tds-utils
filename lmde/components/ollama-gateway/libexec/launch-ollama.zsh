@@ -177,9 +177,11 @@ run_probe() {
 
 # --- Flow: start ---
 
-# record_engine_keg -- the keg this engine is granted, for keg-watch.zsh
-# and the healthcheck: an upgrade that replaces it leaves the engine unable
-# to exec its runner until it is restarted (Issue#709).
+# record_engine_keg -- the keg this start grants, for keg-watch.zsh and the
+# healthcheck: an upgrade that replaces it leaves the engine unable to exec
+# its runner until it is restarted (Issue#709). Written before the probe,
+# so a later watch event during the probe (an old keg's cleanup, another
+# formula's link) finds the new keg and does not kill this start.
 record_engine_keg() {
     local record
     record="$(engine_keg_record "${TREE}")"
@@ -189,7 +191,6 @@ record_engine_keg() {
 
 start_ollama() {
     mkdir -p "${GATEWAY_HOME}/tmp"
-    record_engine_keg
     cd "${GATEWAY_HOME}"
     log "starting ${OLLAMA_BIN} serve on 127.0.0.1:${OLLAMA_GATEWAY_OLLAMA_PORT} (store ${STORE}, keep_alive ${OLLAMA_GATEWAY_KEEP_ALIVE})"
     exec "${SANDBOX_ARGV[@]}" /usr/bin/env -i \
@@ -218,6 +219,7 @@ main() {
     esac
     load_config
     preflight
+    (( PROBE_ONLY )) || record_engine_keg
     run_probe
     if (( PROBE_ONLY )); then
         log "probe-only: not starting ollama"

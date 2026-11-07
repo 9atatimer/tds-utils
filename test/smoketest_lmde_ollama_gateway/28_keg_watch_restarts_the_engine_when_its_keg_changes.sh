@@ -6,8 +6,11 @@
 # the launcher re-grants the new keg and re-runs the probe (Issue#709).
 # It restarts nothing When the keg is unchanged, When no engine keg is
 # recorded, When ollama is not on PATH (mid-upgrade, between unlink and
-# link), or When the engine agent is not loaded; and it always exits 0,
-# since launchd would otherwise log a watcher failure for a no-op.
+# link), When the engine agent is not loaded, or When it is loaded but not
+# running (an operator's clean stop stays down; launchd starts a crashed one
+# through the launcher, which grants the current keg anyway); and it always
+# exits 0, a failed kickstart included, since launchd would otherwise log a
+# watcher failure.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
@@ -36,7 +39,7 @@ main() {
     [[ -f "${KEG_WATCH}" ]] || fail "no keg watcher in the installed tree: ${KEG_WATCH}"
     local out status record="${TREE}/run/engine.keg"
     mkdir -p "${TREE}/run"
-    touch "${WORK}/launchd/${OLLAMA_LABEL}"
+    echo "state = running" > "${WORK}/launchd/${OLLAMA_LABEL}"
 
     # No record: the engine never started, nothing to restart.
     status=0; out="$(run_keg_watch)" || status=$?
@@ -61,13 +64,25 @@ main() {
     assert_eq "${status}" "0" "engine not loaded; output: ${out}"
     assert_eq "$(kickstarts)" "0" "an unloaded engine must not be started by the watcher"
 
-    # The keg changed under a loaded engine: restart it, once.
-    touch "${WORK}/launchd/${OLLAMA_LABEL}"
+    # Engine agent loaded but not running: an operator's stop stays down.
+    echo "state = not running" > "${WORK}/launchd/${OLLAMA_LABEL}"
+    status=0; out="$(run_keg_watch)" || status=$?
+    assert_eq "${status}" "0" "engine stopped; output: ${out}"
+    assert_eq "$(kickstarts)" "0" "a stopped engine must not be started by the watcher"
+
+    # The keg changed under a running engine: restart it, once.
+    echo "state = running" > "${WORK}/launchd/${OLLAMA_LABEL}"
     status=0; out="$(run_keg_watch)" || status=$?
     assert_eq "${status}" "0" "changed keg; output: ${out}"
     assert_eq "$(kickstarts)" "1" "a changed keg must restart the engine"
     assert_contains "${out}" "${WORK}/old-keg" "the log names the old keg"
     assert_contains "${out}" "${FAKE_KEG}" "the log names the new keg"
+
+    # A failed kickstart is logged, and the watcher still exits 0.
+    touch "${WORK}/launchd/kickstart-fails"
+    status=0; out="$(run_keg_watch)" || status=$?
+    assert_eq "${status}" "0" "failed kickstart; output: ${out}"
+    assert_contains "${out}" "kickstart failed" "a failed kickstart is logged"
 }
 
 main "$@"

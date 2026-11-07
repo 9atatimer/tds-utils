@@ -32,8 +32,23 @@ log() { print -r -- "keg-watch: $*"; }
 
 # --- Predicates ---
 
-# is_loaded <label> -- is the agent loaded in this user's GUI domain?
-is_loaded() { launchctl print "gui/$(id -u)/$1" >/dev/null 2>&1; }
+# is_running <label> -- is the agent loaded AND its process running? The
+# job's own state is the first `state =` line of `launchctl print`; nested
+# sections carry their own. A loaded job that is not running is either an
+# operator's clean stop, which stays down, or a crash launchd is about to
+# restart through the launcher, which grants the current keg anyway: in
+# neither case is a kickstart wanted.
+is_running() {
+    local info line
+    info="$(launchctl print "gui/$(id -u)/$1" 2>/dev/null)" || return 1
+    for line in "${(@f)info}"; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ "${line}" == "state = "* ]] || continue
+        [[ "${line}" == "state = running" ]]
+        return
+    done
+    return 1
+}
 
 # --- Flow ---
 
@@ -45,8 +60,8 @@ restart_if_keg_changed() {
         return 0
     fi
     [[ "${recorded}" != "${current}" ]] || return 0
-    if ! is_loaded "${OLLAMA_LABEL}"; then
-        log "keg changed (${recorded} -> ${current}) but ${OLLAMA_LABEL} is not loaded; nothing to restart"
+    if ! is_running "${OLLAMA_LABEL}"; then
+        log "keg changed (${recorded} -> ${current}) but ${OLLAMA_LABEL} is not running; nothing to restart"
         return 0
     fi
     log "engine keg ${recorded} superseded by ${current}; restarting ${OLLAMA_LABEL}"

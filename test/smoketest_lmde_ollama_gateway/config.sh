@@ -311,7 +311,10 @@ CONNECTOR_LABEL="com.tds.lmde.ollama-gateway.connector"
 
 # install_fake_launchctl -- a `launchctl` on FAKE_BIN that logs every call to
 # ${WORK}/launchctl.log and keeps a loaded-or-not marker per label, so the
-# setup scripts' load/unload logic runs without touching launchd.
+# setup scripts' load/unload logic runs without touching launchd. `print`
+# echoes the marker's contents, so a test writes "state = running" into it
+# for a running job; a ${WORK}/launchd/kickstart-fails file makes
+# `kickstart` fail.
 install_fake_launchctl() {
     mkdir -p "${WORK}/launchd"
     cat > "${FAKE_BIN}/launchctl" <<FAKE
@@ -319,10 +322,11 @@ install_fake_launchctl() {
 echo "launchctl \$*" >> "${WORK}/launchctl.log"
 state="${WORK}/launchd"
 case "\$1" in
-    print) [ -e "\${state}/\$(basename "\$2")" ] ;;
+    print) [ -e "\${state}/\$(basename "\$2")" ] && cat "\${state}/\$(basename "\$2")" ;;
     bootstrap) label=\$(/usr/libexec/PlistBuddy -c 'Print :Label' "\$3") && touch "\${state}/\${label}" ;;
     bootout) rm -f "\${state}/\$(basename "\$2")" ;;
-    kickstart|enable|disable) exit 0 ;;
+    kickstart) [ ! -e "\${state}/kickstart-fails" ] ;;
+    enable|disable) exit 0 ;;
     *) echo "fake launchctl: unhandled \$*" >&2; exit 99 ;;
 esac
 FAKE
