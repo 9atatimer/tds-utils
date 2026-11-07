@@ -10,12 +10,12 @@ from pathlib import Path
 import pytest
 
 from adherence.domain.declaration import (
-    DECLARATION_PATH,
     Declaration,
     parse_declaration,
 )
 from adherence.domain.model import Layer
 from adherence.domain.parameters import Vocabulary
+from tests.fixture_tree import FIXTURE_DECLARATION
 
 ROOT = Path(__file__).resolve().parent / "fixtures" / "typescript"
 CRUISER = (
@@ -53,6 +53,6 @@ def sources() -> dict[str, bytes]:
 
 
 def declaration() -> Declaration:
-    parsed = parse_declaration((ROOT / DECLARATION_PATH).read_bytes())
+    parsed = parse_declaration((ROOT / FIXTURE_DECLARATION).read_bytes())
     assert isinstance(parsed, Declaration)
     return parsed

@@ -17,6 +17,7 @@ from adherence.adapters.fakes import FakeComplexity, FakeDuplication
 from adherence.cli.main import main
 from adherence.container import build
 from adherence.domain.qualities import Quality
+from tests.fixture_tree import planted_repository
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "python"
 USE = "src/tool/application/use.py"
@@ -25,7 +26,7 @@ LEDGER = "src/tool/domain/ledger.py"
 RULES = "src/tool/domain/rules.py"
 
 
-def _document() -> dict[str, object]:
+def _document(tmp_path: Path) -> dict[str, object]:
     # No judge, whatever the developer's environment configures: the run
     # stays on this machine.
     builder = functools.partial(
@@ -35,7 +36,14 @@ def _document() -> dict[str, object]:
         environment={},
     )
     result = CliRunner().invoke(
-        main, ["measure", "--root", str(FIXTURE), "--json"], obj=builder
+        main,
+        [
+            "measure",
+            "--root",
+            str(planted_repository(FIXTURE, tmp_path / "repo")),
+            "--json",
+        ],
+        obj=builder,
     )
     assert result.exit_code == 0, result.output
     document: dict[str, object] = json.loads(result.output)
@@ -56,7 +64,7 @@ def _ran(document: dict[str, object], quality: Quality) -> list[str]:
     return ran
 
 
-def test_measure_json_over_the_fixture_prints_the_ddd_findings() -> None:
+def test_measure_json_over_the_fixture_prints_the_ddd_findings(tmp_path: Path) -> None:
     """Given the fixture and its design record's Domain Language defining
     Order and Store, When `adhere
     measure --json` runs, Then Language names the undefined noun and the
@@ -65,7 +73,7 @@ def test_measure_json_over_the_fixture_prints_the_ddd_findings() -> None:
     unit computes over, is a plain value: no finding, nothing asked.
     Decision runs and, with no attribute two units branch on, has nothing
     to ask."""
-    document = _document()
+    document = _document(tmp_path)
 
     assert _ran(document, Quality.DOMAIN_DRIVEN) == [
         "Language",
@@ -89,11 +97,13 @@ def test_measure_json_over_the_fixture_prints_the_ddd_findings() -> None:
     assert not any(check == "Anemic" for check, _, _, _ in found)
 
 
-def test_measure_json_over_the_fixture_prints_the_composable_findings() -> None:
+def test_measure_json_over_the_fixture_prints_the_composable_findings(
+    tmp_path: Path,
+) -> None:
     """Given the fixture, When `adhere measure --json` runs, Then Values in
     and out names the parameter, No nesting names both functions, and
     Helpers take values names the helper and the parameter."""
-    document = _document()
+    document = _document(tmp_path)
 
     assert _ran(document, Quality.COMPOSABLE) == [
         "Values in and out",
@@ -113,11 +123,13 @@ def test_measure_json_over_the_fixture_prints_the_composable_findings() -> None:
     }
 
 
-def test_measure_json_over_the_fixture_prints_the_injectable_findings() -> None:
+def test_measure_json_over_the_fixture_prints_the_injectable_findings(
+    tmp_path: Path,
+) -> None:
     """Given the fixture, When `adhere measure --json` runs, Then Ports as
     keywords names the use case and the port, No self-wiring the use case
     and the adapter, and No reach the unit and what it reached."""
-    document = _document()
+    document = _document(tmp_path)
 
     assert _ran(document, Quality.INJECTABLE) == [
         "Ports as keywords",

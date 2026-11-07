@@ -26,6 +26,7 @@ from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import CodeModel, UnitKind
 from adherence.domain.target import Head
 from tests import shell_fixture
+from tests.fixture_tree import planted_repository
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 DECLARATION = b'[layers]\nadapters = ["log-hoarder/**"]\ntest = ["test/**"]\n'
@@ -96,7 +97,9 @@ def test_the_repositorys_bash_scripts_are_modelled_whole() -> None:
     assert checked >= 100, "too few functions found to check the model against"
 
 
-def test_measure_over_the_shell_fixture_says_which_checks_do_not_read_it() -> None:
+def test_measure_over_the_shell_fixture_says_which_checks_do_not_read_it(
+    tmp_path: Path,
+) -> None:
     """Given the shell fixture, one of whose scripts puts its entry point
     above its functions, When `adhere measure --json` runs over it, Then the
     run is not refused, no script is in a language no analyzer measures,
@@ -111,7 +114,14 @@ def test_measure_over_the_shell_fixture_says_which_checks_do_not_read_it() -> No
     )
 
     result = CliRunner().invoke(
-        main, ["measure", "--root", str(shell_fixture.ROOT), "--json"], obj=builder
+        main,
+        [
+            "measure",
+            "--root",
+            str(planted_repository(shell_fixture.ROOT, tmp_path / "repo")),
+            "--json",
+        ],
+        obj=builder,
     )
 
     assert result.exit_code == 0, result.output
