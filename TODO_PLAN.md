@@ -175,25 +175,10 @@ not asked.
 
 Graduated 2026-10-13 to the Skills repo (Skills PR#123): the three design
 lessons, the Given/When/Then lesson and the todo-plan lesson that sat here
-with a non-wip `about:`.
-
-### A vendor feature in the architecture is checked against the plan tier of the repositories it targets
-
-about: skill:architecture
-
-The adherence architecture gave the PR surface line annotations through
-GitHub code scanning (a SARIF upload in the reusable workflow's own job);
-the design names no upload. Code scanning is free on a public repository
-and a paid add-on (Code Security) on a private one; the fleet's monorepos
-are private and the owner will not buy it. The first private consumer's
-call failed over the upload while its judge passed (template-tools
-PR#1058, run 42310085996), and the upload went (PR#694, Key Decisions).
-The architecture named the feature and never the tier; its seam-review
-panel and the reviews of three CI changes did not ask either. Rule: a
-vendor or platform feature the architecture leans on names its plan or
-licence tier, and the record checks it against every repository the
-design targets, public and private. Routed to the architecture skill in
-Skills PR#176; this entry goes when that lands.
+with a non-wip `about:`. Graduated 2026-11-07 (Skills PR#176): the
+architecture lesson from the adherence rollout, a platform feature the
+record leans on names the tier that gates it, checked against the
+repositories the design targets.
 
 ### Host-scoped design meets profile-scoped transport
 
