@@ -18,8 +18,8 @@
 #            job's GITHUB_TOKEN for the reviews that settle which landed
 #            adherence.toml is in force, and the hosted judge's gateway
 #            URL and token and the ledger's configuration
-#            and credentials, read from 1Password when the caller supplies
-#            the service account (Credentials, below; without the judge's
+#            and credentials, found in 1Password by tag when the caller
+#            supplies the service account (Credentials, below; without the judge's
 #            token the judged checks are coverage and the verdict is
 #            inconclusive at best). The engine hands every analyzer an
 #            allowlisted environment (PATH, LANG, and HOME and TMPDIR set to
@@ -55,31 +55,32 @@
 # name `base` and `head` instead (tedium's staging commit, say).
 #
 # Credentials: one secret, ADHERENCE_OP_SA_TOKEN, a read-only 1Password
-# service account scoped to the adherence vault; everything else is an
-# op:// item reference in a repository or owner VARIABLE, resolved at run
-# time by the one step that sees the token (one secret per workflow
-# family). Each value read is masked before anything is written, and
-# reaches only the judge step's environment.
+# service account scoped to the adherence vault, and no variables. The one
+# step that sees the token finds each item by its 1Password TAG among the
+# vaults the account can read, masks the ids it finds, and reads the
+# fields (one secret per workflow family). Each value read is masked
+# before anything is written, and reaches only the judge step's
+# environment. Tags rather than op:// references in variables, because a
+# step's log header prints every variable it is given before any mask can
+# run, and this repository's logs are public: no vault, item or account
+# name may reach them.
 #
-#   DECIDE_GATEWAY_OP_ITEM     the judge's run token, field `password`,
-#                              and the gateway base, field `url` (it
-#                              names the account, so it is masked like
-#                              the token rather than kept in a variable)
-#   ADHERENCE_LEDGER_OP_ITEM   the warehouse's scan credential: fields
+#   adherence-judge            the judge's run token, field `password`,
+#                              and the gateway base, field `url`
+#   adherence-ledger           the warehouse's scan credential: fields
 #                              `username` (access key id), `password`
 #                              (secret), `endpoint` and `bucket`
-#   ADHERENCE_LEDGER_LOOKUP_OP_ITEM
-#                              the lookup-write credential, fields
+#   adherence-ledger-lookup    the lookup-write credential, fields
 #                              `username` and `password` (Reports, below)
 #
-# A variable left unset turns its consumer off: no judge, or no warehouse.
-# A variable that is set but cannot be read fails the job, since a
-# configured judge that is silently not asked would pass every judged
-# check as coverage. A same-repository pull request runs this workflow as
-# it edits it, so anyone who can open one can read what the service
-# account reads (the architecture's Q6): the vault holds only the judge's
-# spend-capped token and the scan credential, never the lookup-write
-# credential.
+# No item with a tag turns its consumer off: no judge, or no warehouse.
+# Two items with one tag, or a tagged item whose field cannot be read,
+# fails the job, since a configured judge that is silently not asked
+# would pass every judged check as coverage. A same-repository pull
+# request runs this workflow as it edits it, so anyone who can open one
+# can read what the service account reads (the architecture's Q6): the
+# vault holds only the judge's spend-capped token and the scan
+# credential, never the lookup-write credential.
 #
 # Reports: ci keeps each report in the runner's per-user file cache, and
 # reads no base back from it. With the scan credential (`ledger_region`
@@ -125,8 +126,7 @@
 # the lookup-write credential is provisioned there -- a caller that also
 # runs on push to the default branch, so that run writes the base.
 #
-# and the caller owner's variables CI_RUNS_ON (optional runner pool),
-# and the op:// item variables (Credentials, above). Adoption
+# and the caller owner's variable CI_RUNS_ON (optional runner pool). Adoption
 # also requires (architecture, Operability): an adherence.toml landed with
 # the owner's approval, CODEOWNERS entries naming users for adherence.toml,
 # the caller workflow and its pins, and branch protection that requires
@@ -183,7 +183,7 @@ on:
         default: ''
     secrets:
       ADHERENCE_OP_SA_TOKEN:
-        description: The read-only 1Password service account for the adherence vault, which resolves the op:// item variables (Credentials, in the header); without it nothing is read, the judged checks are coverage and reports stay in the file cache. On a push to the default branch, the `ledger_environment` environment's own secret of this name takes its place.
+        description: The read-only 1Password service account for the adherence vault, whose items are found by tag (Credentials, in the header); without it nothing is read, the judged checks are coverage and reports stay in the file cache. On a push to the default branch, the `ledger_environment` environment's own secret of this name takes its place.
         required: false
 
 permissions:
@@ -341,16 +341,15 @@ jobs:
         with:
           version: 2.40.0
 
-      # The one step that sees the service account. Every value it reads is
-      # masked before it is written; the values reach only the judge step.
-      # Item references are caller variables, so they come in through env:.
+      # The one step that sees the service account. Items are found by tag,
+      # so no vault or item name is ever an input this step's log header
+      # prints; the ids found are masked before they are used, and every
+      # value read is masked before it is written. Node parses op's JSON:
+      # it is set up above on every runner.
       - name: Credentials
         id: creds
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.ADHERENCE_OP_SA_TOKEN }}
-          DECIDE_GATEWAY_OP_ITEM: ${{ vars.DECIDE_GATEWAY_OP_ITEM }}
-          ADHERENCE_LEDGER_OP_ITEM: ${{ vars.ADHERENCE_LEDGER_OP_ITEM }}
-          ADHERENCE_LEDGER_LOOKUP_OP_ITEM: ${{ vars.ADHERENCE_LEDGER_LOOKUP_OP_ITEM }}
           LOOKUP_RUN: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.ledger_environment != '' }}
         shell: bash
         run: |
@@ -359,29 +358,59 @@ jobs:
             echo "adherence: no ADHERENCE_OP_SA_TOKEN; the judged checks are coverage and reports stay in the file cache"
             exit 0
           fi
-          # put <output> <item> <field> -- one field, masked, into an output.
+          # find <tag> -- set REF to "<vault id>/<item id>" of the one item
+          # tagged <tag>, both ids masked; REF empty when none is; exit on
+          # more than one. A variable, not stdout, so the mask lines reach
+          # the log and a refusal is not swallowed by a command substitution.
+          find() {
+            local listing count
+            REF=""
+            listing="$(op item list --tags "$1" --format json 2>/dev/null)" || {
+              echo "adherence: cannot list the items tagged $1" >&2
+              exit 1
+            }
+            # shellcheck disable=SC2016 # a JavaScript template, not a shell one
+            count="$(printf '%s' "${listing:-[]}" | node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(0, "utf8") || "[]").length))')" || exit 1
+            if [ "${count}" -gt 1 ]; then
+              echo "adherence: ${count} items are tagged $1; expected one" >&2
+              exit 1
+            fi
+            [ "${count}" -eq 1 ] || return 0
+            # shellcheck disable=SC2016 # a JavaScript template, not a shell one
+            REF="$(printf '%s' "${listing}" | node -e 'const [i] = JSON.parse(require("fs").readFileSync(0, "utf8")); process.stdout.write(`${i.vault.id}/${i.id}`)')" || exit 1
+            echo "::add-mask::${REF%%/*}"
+            echo "::add-mask::${REF##*/}"
+          }
+          # put <output> <vault/item> <tag> <field> -- one field, masked.
           put() {
             local value
-            value="$(op read "$2/$3")" || {
-              echo "adherence: cannot read field '$3' of $2 (the variable naming the item is set, so this is a misconfiguration)" >&2
+            value="$(op read "op://$2/$4" 2>/dev/null)" || {
+              echo "adherence: cannot read field '$4' of the item tagged $3" >&2
               exit 1
             }
             echo "::add-mask::${value}"
             echo "$1=${value}" >> "$GITHUB_OUTPUT"
           }
-          if [ -n "${DECIDE_GATEWAY_OP_ITEM}" ]; then
-            put decide_token "${DECIDE_GATEWAY_OP_ITEM}" password
-            put decide_url "${DECIDE_GATEWAY_OP_ITEM}" url
+          find adherence-judge
+          if [ -n "${REF}" ]; then
+            put decide_token "${REF}" adherence-judge password
+            put decide_url "${REF}" adherence-judge url
+          else
+            echo "adherence: no item tagged adherence-judge; the judged checks are coverage"
           fi
-          if [ -n "${ADHERENCE_LEDGER_OP_ITEM}" ]; then
-            put ledger_endpoint "${ADHERENCE_LEDGER_OP_ITEM}" endpoint
-            put ledger_bucket "${ADHERENCE_LEDGER_OP_ITEM}" bucket
-            put ledger_key_id "${ADHERENCE_LEDGER_OP_ITEM}" username
-            put ledger_secret "${ADHERENCE_LEDGER_OP_ITEM}" password
+          find adherence-ledger
+          if [ -n "${REF}" ]; then
+            put ledger_endpoint "${REF}" adherence-ledger endpoint
+            put ledger_bucket "${REF}" adherence-ledger bucket
+            put ledger_key_id "${REF}" adherence-ledger username
+            put ledger_secret "${REF}" adherence-ledger password
           fi
-          if [ "${LOOKUP_RUN}" = true ] && [ -n "${ADHERENCE_LEDGER_LOOKUP_OP_ITEM}" ]; then
-            put lookup_key_id "${ADHERENCE_LEDGER_LOOKUP_OP_ITEM}" username
-            put lookup_secret "${ADHERENCE_LEDGER_LOOKUP_OP_ITEM}" password
+          if [ "${LOOKUP_RUN}" = true ]; then
+            find adherence-ledger-lookup
+            if [ -n "${REF}" ]; then
+              put lookup_key_id "${REF}" adherence-ledger-lookup username
+              put lookup_secret "${REF}" adherence-ledger-lookup password
+            fi
           fi
 
       # The report is author-controlled text: the engine labels every log

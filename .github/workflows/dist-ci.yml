@@ -368,8 +368,8 @@ jobs:
   # engine is judged by the engine it carries. A pull request from a fork
   # is skipped, so no fork's head is ever run as the engine. The one secret
   # is the adherence vault's read-only 1Password service account; the
-  # judge's token and the warehouse's credential are op:// items it reads
-  # when their variables are set (adherence.yml, Credentials). Until the
+  # judge's token and the warehouse's credential are items it finds there
+  # by tag (adherence.yml, Credentials). Until the
   # warehouse exists (tds-internal Issue#276) reports are kept in the
   # runner's file cache and the report says so.
   adherence-judge:
