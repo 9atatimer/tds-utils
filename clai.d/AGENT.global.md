@@ -382,6 +382,13 @@ every repo the fleet works in; the owner's approval is the review.
   every `git commit` inside the bot's environment:
   `op run --env-file <(claude-as-bot --print-env) -- <cmd>`. A commit
   outside it is authored as the owner.
+- That form fails open: when `claude-as-bot` exits non-zero (an unset
+  `TDS_BOT_GH_TOKEN_REF`, say), the process substitution's status is
+  lost and `op run` runs `<cmd>` as the owner. Make the identity check
+  the wrapped command's first step,
+  `[ "$(gh api user --jq .login)" = 9atatimer-bot ] || exit 1`, so a
+  failed switch stops before it acts. Two PRs went out as the owner
+  this way on 2026-11-07 (tds-utils#717).
 - Before the first push, run `gh api user --jq .login`. If it does not
   print `9atatimer-bot`, stop and switch identity before acting on GitHub.
 
