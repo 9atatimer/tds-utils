@@ -124,9 +124,10 @@ SCATTERED_POLICY = _binary(
     "what the expression is called: a flag, mode or setting that changes "
     "an outcome of the problem (what is valid, what is allowed, what "
     "something costs) is a decision of the problem. A branch that only "
-    "changes how output is shown or logged, or only guards against an "
-    "empty or missing value before using it, decides nothing of the "
-    "problem: answer no for those.",
+    "changes how output is shown or logged, only guards against an empty "
+    "or missing value before using it, or only checks whether a call or "
+    "operation succeeded in order to report or raise its failure, decides "
+    "nothing of the problem: answer no for those.",
 )
 INVARIANT_BROKEN = _binary(
     "invariant_broken",
