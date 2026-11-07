@@ -48,6 +48,8 @@ DECLARED_REFUSAL = "the Declared quality's checks cannot be exempted"
 REGIONS_KEY = "regions"
 LAYER_NAMES = {layer.value: layer for layer in Layer}
 GLOB_CHARACTERS = frozenset("*?[")
+# A glob character escaped as a one-character class: `[[]`, `[*]`, `[?]`.
+ESCAPED = re.compile(r"\[([*?\[])\]")
 # `# --- Action functions ---` (shell, Python) or `// --- Action functions ---`
 # (TypeScript, JavaScript), with any run of trailing dashes.
 SECTION_MARKER = re.compile(r"^\s*(?:#|//)\s*---\s*(?P<name>[^-].*?)\s*-*\s*$")
@@ -300,9 +302,22 @@ class ReviewsUnavailable:
 # --- Predicates --------------------------------------------------------------
 
 
+def literal_form(pattern: str) -> str:
+    """The pattern with each escaped glob character (`[[]`, `[*]`, `[?]`)
+    read as the character itself."""
+    return ESCAPED.sub(lambda m: m.group(1), pattern)
+
+
 def is_literal(pattern: str) -> bool:
-    """Whether a layer pattern names one path rather than a glob."""
-    return not GLOB_CHARACTERS & set(pattern)
+    """Whether a layer pattern names one path rather than a glob: no glob
+    character once its escaped ones are read as themselves."""
+    return not GLOB_CHARACTERS & set(ESCAPED.sub("", pattern))
+
+
+def escaped(directory: str) -> str:
+    """A directory as a glob that matches only itself: each glob character
+    in it bracketed."""
+    return "".join(f"[{c}]" if c in GLOB_CHARACTERS else c for c in directory)
 
 
 def matches(pattern: str, path: str) -> bool:
@@ -388,7 +403,7 @@ def layer_of(
         index for index, subtree in declaration.layers.voided if is_under(path, subtree)
     }
     hits = [
-        (is_literal(pattern), len(pattern), layer)
+        (is_literal(pattern), len(literal_form(pattern)), layer)
         for index, (layer, pattern) in enumerate(declaration.layers.globs)
         if index not in voided and matches(pattern, path)
     ]
@@ -763,7 +778,15 @@ def escapes(path: str) -> bool:
 
 
 def _under(directory: str, path: str) -> str:
+    """A path a file names, literally, under the file's directory."""
     return f"{directory}/{path}" if directory else path
+
+
+def _glob_under(directory: str, pattern: str) -> str:
+    """A glob a file names, under the file's directory read literally: the
+    directory's own glob characters escaped, so the glob can only match
+    under that directory."""
+    return f"{escaped(directory)}/{pattern}" if directory else pattern
 
 
 def _moved(exemption: Exemption, directory: str) -> Exemption:
@@ -772,7 +795,7 @@ def _moved(exemption: Exemption, directory: str) -> Exemption:
     unit = exemption.unit
     return replace(
         exemption,
-        unit=_under(directory, unit) if unit is not None else None,
+        unit=_glob_under(directory, unit) if unit is not None else None,
         within=directory,
     )
 
@@ -798,7 +821,7 @@ def _named_paths(declaration: Declaration) -> tuple[str, ...]:
 
 def _moved_layers(layers: Layers, directory: str) -> Layers:
     return Layers(
-        tuple((layer, _under(directory, p)) for layer, p in layers.globs),
+        tuple((layer, _glob_under(directory, p)) for layer, p in layers.globs),
         tuple(replace(r, path=_under(directory, r.path)) for r in layers.regions),
         tuple(_under(directory, p) for p in layers.marker_files),
     )
@@ -832,7 +855,7 @@ def _relocated(
         records=_moved_records(declaration.records, directory),
         radar=_under(directory, radar) if radar else None,
         runtimes=tuple(
-            Runtime(r.name, tuple(_under(directory, p) for p in r.patterns), name)
+            Runtime(r.name, tuple(_glob_under(directory, p) for p in r.patterns), name)
             for r in declaration.runtimes
         ),
         governed=(directory,),

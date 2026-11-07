@@ -14,7 +14,9 @@ from pathlib import Path
 import pytest
 
 from adherence.adapters.git import GitRepository
+from adherence.application.load import load_declaration
 from adherence.domain.deadline import Deadline, TimedOut
+from adherence.domain.declaration import DeclarationUnreadable
 from adherence.domain.target import Base, Head
 from adherence.ports.repository import Refused, RepositoryPort
 from tests.git_kit import GIT_ENV, git, make_repository
@@ -241,3 +243,28 @@ def test_changed_staged_reads_the_index_git_names_for_its_hook(
     assert unset.created == ()
     assert not isinstance(named, Refused | TimedOut), named
     assert named.created == ("b.py",)
+
+
+@pytest.mark.parametrize(
+    "at", [Head.at_revision("HEAD"), Head.working_tree()], ids=["revision", "working"]
+)
+def test_a_symlinked_declaration_is_refused_and_so_unreadable(
+    tmp_path: Path, at: Head
+) -> None:
+    """Given a sub-project whose adherence.toml is a symbolic link, When the
+    declaration is loaded at a revision or from the working tree, Then the
+    git adapter refuses the link and the declaration cannot be read, naming
+    the file."""
+    root = tmp_path / "repo"
+    (tmp_path / "outside.toml").write_bytes(b"[layers]\n")
+    git(tmp_path, "init", "-q", "-b", "master", str(root))
+    (root / "adherence.toml").write_bytes(b"[layers]\n")
+    (root / "pkg").mkdir()
+    (root / "pkg" / "adherence.toml").symlink_to(tmp_path / "outside.toml")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "link")
+
+    loaded = load_declaration(at, repository=GitRepository(str(root)), deadline=None)
+
+    assert isinstance(loaded, DeclarationUnreadable), loaded
+    assert "pkg/adherence.toml" in loaded.reason

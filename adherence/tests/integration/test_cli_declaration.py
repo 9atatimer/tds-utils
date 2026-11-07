@@ -138,3 +138,25 @@ def test_declaration_check_fails_when_the_files_conflict(tmp_path: Path) -> None
     assert code == 1, output
     assert "governing declarations unreadable" in output
     assert "pkg/io.py" in output
+
+
+def test_declaration_check_names_a_directory_holding_glob_characters(
+    tmp_path: Path,
+) -> None:
+    """Given a sub-project declaration in a directory named with glob
+    characters, When it is checked, Then its line names the directory as it
+    is, and it reads."""
+    root = _repository(
+        tmp_path,
+        {
+            "adherence.toml": b'[layers]\ndomain = ["xy/src/**"]\n',
+            "x[y]/adherence.toml": b'[layers]\ntest = ["src/**"]\n',
+            "xy/src/dom.py": b"x = 1\n",
+            "x[y]/src/t.py": b"x = 1\n",
+        },
+    )
+
+    code, output = _check(root)
+
+    assert code == 0, output
+    assert "x[y]/adherence.toml: readable, 0 exemptions" in output.splitlines()

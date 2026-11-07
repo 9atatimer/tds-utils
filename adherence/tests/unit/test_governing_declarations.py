@@ -10,11 +10,14 @@ from collections.abc import Collection
 
 import pytest
 
+from adherence.domain.checks.layered import is_in_runtime
 from adherence.domain.declaration import (
     Declaration,
     DeclarationUnreadable,
     governing_declarations,
+    is_literal,
     layer_of,
+    matches,
     parse_declaration,
     parse_file,
 )
@@ -300,3 +303,74 @@ def test_vocabulary_cannot_be_overridden() -> None:
     assert isinstance(parsed, DeclarationUnreadable)
     assert "pkg/adherence.toml" in parsed.reason
     assert "vocabulary cannot be overridden" in parsed.reason
+
+
+def test_a_child_under_a_bracketed_directory_governs_only_its_own() -> None:
+    """Given a child declaration at x[y]/ placing src/** in the test layer
+    beside a root placing xy/src/** in the domain, When they are read as
+    one, Then the child's glob reaches x[y]/src/ and nothing under xy/:
+    the root's domain file keeps its layer and nothing conflicts."""
+    tree = ("xy/src/dom.py", "x[y]/src/t.py")
+    declaration = _declared(
+        {
+            "adherence.toml": b'[layers]\ndomain = ["xy/src/**"]\n',
+            "x[y]/adherence.toml": b'[layers]\ntest = ["src/**"]\n',
+        },
+        tree=tree,
+    )
+
+    assert layer_of("xy/src/dom.py", None, declaration) is Layer.DOMAIN
+    assert layer_of("x[y]/src/t.py", None, declaration) is Layer.TEST
+
+
+@pytest.mark.parametrize("directory", ["*", "a?", "[ab]"])
+def test_a_child_under_a_metacharacter_directory_governs_only_its_own(
+    directory: str,
+) -> None:
+    """Given a child declaration whose directory name holds a glob
+    character, When it is read, Then its layer globs, runtime patterns and
+    exemption units match under its own literal directory only."""
+    declaration = _declared(
+        {
+            f"{directory}/adherence.toml": b'[layers]\ntest = ["src/**"]\n'
+            b'[runtimes]\ncli = ["src/**"]\n'
+            b'[[exemptions]]\ncheck = "Stub"\nunit = "src/**"\nreason = "r"\n'
+        }
+    )
+
+    for other in ("x/src/a.py", "ab/src/a.py", "a/src/a.py", "b/src/a.py"):
+        assert layer_of(other, None, declaration) is None, other
+    assert layer_of(f"{directory}/src/a.py", None, declaration) is Layer.TEST
+    [runtime] = declaration.runtimes
+    assert is_in_runtime(f"{directory}/src/a.py", runtime)
+    assert not is_in_runtime("x/src/a.py", runtime)
+    [exemption] = declaration.exemptions
+    assert exemption.unit is not None
+    assert matches(exemption.unit, f"{directory}/src/a.py")
+    assert not matches(exemption.unit, "x/src/a.py")
+
+
+def test_conflict_and_layer_of_agree_under_a_bracketed_directory() -> None:
+    """Given a root and a child at x[y]/ that place one real path under
+    x[y]/ in two layers, When they are read as one, Then it is a conflict
+    naming the path; and a literal path the child names keeps a literal's
+    precedence over the root's glob."""
+    merged = _merged(
+        {
+            "adherence.toml": b'[layers]\ndomain = ["**/*.py"]\n',
+            "x[y]/adherence.toml": b'[layers]\ntest = ["src/**"]\n',
+        },
+        tree=("x[y]/src/t.py", "xy/src/t.py"),
+    )
+    assert isinstance(merged, DeclarationUnreadable)
+    assert "x[y]/src/t.py" in merged.reason
+
+    agreed = _declared(
+        {
+            "adherence.toml": b'[layers]\nadapters = ["x[[]y]/src/**/*.py"]\n',
+            "x[y]/adherence.toml": b'[layers]\nadapters = ["src/io.py"]\n',
+        },
+        tree=("x[y]/src/io.py",),
+    )
+    assert layer_of("x[y]/src/io.py", None, agreed) is Layer.ADAPTERS
+    assert is_literal(agreed.layers.globs[-1][1])
