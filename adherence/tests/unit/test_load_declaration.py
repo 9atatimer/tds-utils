@@ -92,3 +92,72 @@ def test_load_declaration_that_parses_is_declared() -> None:
 
     assert isinstance(loaded, Declaration)
     assert loaded.declared
+
+
+def test_load_declaration_reads_every_declaration_as_one() -> None:
+    """Given a root declaration naming the radar and a sub-project one
+    naming its layers, When the declaration is loaded, Then it is the two
+    read as one, governing both directories."""
+    repository = FakeRepository(
+        {
+            HEAD: {
+                DECLARATION_PATH: b'[radar]\npath = "RADAR.md"\n',
+                "pkg/adherence.toml": b'[layers]\ndomain = ["core/**"]\n',
+                "pkg/core/rules.py": b"x = 1\n",
+            }
+        }
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, Declaration)
+    assert loaded.governed == ("", "pkg")
+    assert loaded.radar_for("pkg/core/rules.py") == "RADAR.md"
+    assert loaded.layers.globs[0][1] == "pkg/core/**"
+
+
+def test_load_declaration_with_only_sub_project_declarations_is_declared() -> None:
+    """Given declarations only in sub-projects, When the declaration is
+    loaded, Then the repository is declared and only those subtrees are
+    governed."""
+    repository = FakeRepository(
+        {HEAD: {"a/adherence.toml": b"[layers]\n", "b/adherence.toml": b"[layers]\n"}}
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, Declaration) and loaded.declared
+    assert not loaded.governs("c/x.py") and loaded.governs("b/x.py")
+
+
+def test_load_declaration_with_a_layer_conflict_on_a_real_path_is_unreadable() -> None:
+    """Given two governing declarations placing a file of the tree in two
+    layers, When the declaration is loaded, Then it cannot be read, naming
+    both files and the path."""
+    repository = FakeRepository(
+        {
+            HEAD: {
+                DECLARATION_PATH: b'[layers]\ndomain = ["**/*.py"]\n',
+                "pkg/adherence.toml": b'[layers]\nadapters = ["*.py"]\n',
+                "pkg/io.py": b"x = 1\n",
+            }
+        }
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, DeclarationUnreadable)
+    assert "pkg/adherence.toml" in loaded.reason and "pkg/io.py" in loaded.reason
+
+
+def test_load_declaration_names_the_sub_project_file_that_cannot_be_parsed() -> None:
+    """Given a sub-project declaration that does not parse, When the
+    declaration is loaded, Then it cannot be read, naming that file."""
+    repository = FakeRepository(
+        {HEAD: {DECLARATION_PATH: b"[layers]\n", "pkg/adherence.toml": b"[layers\n"}}
+    )
+
+    loaded = load_declaration(HEAD, repository=repository, deadline=None)
+
+    assert isinstance(loaded, DeclarationUnreadable)
+    assert "pkg/adherence.toml" in loaded.reason
