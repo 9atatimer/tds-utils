@@ -11,6 +11,8 @@ import urllib.request
 import urllib.response
 from email.message import Message
 
+import pytest
+
 from adherence.adapters.github_reviews import GitHubReviews, standing_approvals
 from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import (
@@ -102,6 +104,31 @@ def test_github_reviews_read_the_declaration_file_they_are_asked_about() -> None
     contents = f"https://api.github.com/repos/{REPOSITORY}/contents/"
     assert f"{contents}pkg/adherence.toml" in asked, asked
     assert f"{contents}{DECLARATION_PATH}" not in asked, asked
+
+
+@pytest.mark.parametrize(
+    ("path", "encoded"),
+    [
+        ("my pkg/adherence.toml", "my%20pkg/adherence.toml"),
+        ("caf\u00e9/adherence.toml", "caf%C3%A9/adherence.toml"),
+    ],
+    ids=["space", "non-ascii"],
+)
+def test_github_reviews_percent_encode_the_declaration_path(
+    path: str, encoded: str
+) -> None:
+    """Given a declaration file whose directory holds a space or a non-ASCII
+    letter, When its landing's approvals are asked for, Then the reviewed
+    text is asked at the percent-encoded contents URL and nothing raises."""
+    opener, handler = fixture_opener()
+
+    answer = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    ).approvals(LANDED, None, path=path)
+
+    assert isinstance(answer, Landing), answer
+    asked = [r.full_url.split("?")[0] for r in handler.requests]
+    assert f"https://api.github.com/repos/{REPOSITORY}/contents/{encoded}" in asked
 
 
 def test_github_reviews_reads_the_merger_from_the_pull_request_itself() -> None:

@@ -26,6 +26,7 @@ import json
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from typing import cast
@@ -302,11 +303,13 @@ class GitHubReviews:
     def _declaration_at(
         self, commit: str, path: str, deadline: Deadline | None
     ) -> DeclarationText:
-        """A declaration file at a commit, from the contents API: None where the
-        commit is known and the file absent, unreadable on any other
-        failure. A passed deadline still ends the whole answer."""
+        """A declaration file at a commit, from the contents API, its path
+        percent-encoded: None where the commit is known and the file
+        absent, unreadable on any other failure. A passed deadline still
+        ends the whole answer."""
         try:
-            return self._fetch(f"contents/{path}?ref={commit}", RAW_MEDIA, deadline)
+            quoted = urllib.parse.quote(path, safe="/")
+            return self._fetch(f"contents/{quoted}?ref={commit}", RAW_MEDIA, deadline)
         except _NotFound as missing:
             try:
                 self._get(f"commits/{commit}", deadline)
