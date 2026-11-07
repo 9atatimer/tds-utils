@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: setup.sh renders @TREE@, @LOGDIR@, @OLLAMA_BIN_DIR@ and
+     @OLLAMA_KEGS_DIR@ to absolute paths into ~/Library/LaunchAgents.
+     The keg watcher (Issue#709): when a Homebrew upgrade relinks ollama or
+     cleans up its old keg, keg-watch.zsh restarts the external ollama if
+     the keg it runs from is no longer current. Event-driven: no RunAtLoad,
+     no KeepAlive, no interval. launchd still runs it once when it is
+     loaded, which catches an upgrade made while it was not. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tds.lmde.ollama-gateway.keg-watch</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-f</string>
+    <string>@TREE@/libexec/keg-watch.zsh</string>
+  </array>
+
+  <!-- The external ollama's own PATH, so both resolve the same keg. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>WatchPaths</key>
+  <array>
+    <string>@OLLAMA_BIN_DIR@</string>
+    <string>@OLLAMA_KEGS_DIR@</string>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>@LOGDIR@/ollama.log</string>
+  <key>StandardErrorPath</key>
+  <string>@LOGDIR@/ollama.log</string>
+</dict>
+</plist>

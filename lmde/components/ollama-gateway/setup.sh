@@ -15,10 +15,14 @@
 #     "not-a-secret"
 #   - installs the gateway's route into the LMDE proxy layer
 #     (~/.local/share/lmde-proxy/routes) and restarts the layer if loaded
-#   - renders both LaunchAgents into ~/Library/LaunchAgents, loads the
+#   - renders the LaunchAgents into ~/Library/LaunchAgents, loads the
 #     external ollama, and loads the connector only once a human has seeded
 #     its run token (seed-tunnel-token.zsh); until then it stays disabled,
 #     so it neither crash-loops now nor starts at the next login
+#   - loads the keg watcher, which restarts the external ollama when an
+#     upgrade replaces the keg it runs from (Issue#709); it watches the
+#     directories of the `ollama` on this PATH, so it is skipped, with a
+#     line saying so, when there is none
 #
 # uninstall: unloads and removes all of the above. The run token in the
 # keychain is the human's to delete; the command is printed.
@@ -37,6 +41,7 @@ setopt null_glob
 readonly COMPONENT_DIR="${0:A:h}"
 readonly OLLAMA_LABEL="com.tds.lmde.ollama-gateway.ollama"
 readonly CONNECTOR_LABEL="com.tds.lmde.ollama-gateway.connector"
+readonly WATCH_LABEL="com.tds.lmde.ollama-gateway.keg-watch"
 readonly PROXY_LABEL="com.tds.lmde.proxy-layer"
 readonly CANARY_SERVICE="lmde.ollama-gateway.probe-canary"
 readonly TOKEN_SERVICE="lmde.ollama-gateway.tunnel-token"
@@ -60,6 +65,9 @@ load_config() {
     [[ -n "${OLLAMA_GATEWAY_KEYCHAIN:-}" ]] && KEYCHAIN_ARG=("${OLLAMA_GATEWAY_KEYCHAIN}")
     return 0
 }
+
+# shellcheck disable=SC1091
+source "${COMPONENT_DIR}/libexec/keg.zsh"
 
 log() { print -r -- "ollama-gateway: $*"; }
 die() { print -u2 -r -- "ollama-gateway: $*"; exit 1; }
@@ -87,11 +95,13 @@ unload() {
     done
 }
 
-# render_agent <label> -- the plist template with absolute paths, linted.
+# render_agent <label> [<sed args>...] -- the plist template with absolute
+# paths, linted; extra sed expressions fill an agent's own placeholders.
 render_agent() {
     local label="$1" target="${AGENTS}/$1.plist"
+    shift
     mkdir -p "${AGENTS}"
-    sed -e "s|@TREE@|${TREE}|g" -e "s|@LOGDIR@|${LOGDIR}|g" \
+    sed -e "s|@TREE@|${TREE}|g" -e "s|@LOGDIR@|${LOGDIR}|g" "$@" \
         "${COMPONENT_DIR}/launchd/${label}.plist.in" > "${target}"
     plutil -lint "${target}" >/dev/null || die "rendered plist is invalid: ${target}"
 }
@@ -165,6 +175,23 @@ load_agents() {
     fi
 }
 
+# load_keg_watch -- the watcher over the directory holding `ollama` (a
+# relink) and the directory holding its kegs (an old keg's cleanup). Both
+# come from the `ollama` on this PATH, the one the engine resolves too.
+load_keg_watch() {
+    local bin keg
+    unload "${WATCH_LABEL}"
+    if ! bin="$(whence -p ollama)" || ! keg="$(ollama_keg)"; then
+        rm -f "${AGENTS}/${WATCH_LABEL}.plist"
+        log "${WATCH_LABEL} NOT installed: no ollama on PATH; an upgrade will not restart the engine. Install ollama, then run this again."
+        return 0
+    fi
+    render_agent "${WATCH_LABEL}" \
+        -e "s|@OLLAMA_BIN_DIR@|${bin:h}|g" -e "s|@OLLAMA_KEGS_DIR@|${keg:h}|g"
+    launchctl bootstrap "${DOMAIN}" "${AGENTS}/${WATCH_LABEL}.plist"
+    log "loaded ${WATCH_LABEL} (watching ${bin:h}, ${keg:h})"
+}
+
 # --- Flows ---
 
 do_install() {
@@ -172,12 +199,14 @@ do_install() {
     install_canaries
     install_route
     load_agents
+    load_keg_watch
 }
 
 do_uninstall() {
+    unload "${WATCH_LABEL}"
     unload "${CONNECTOR_LABEL}"
     unload "${OLLAMA_LABEL}"
-    rm -f "${AGENTS}/${OLLAMA_LABEL}.plist" "${AGENTS}/${CONNECTOR_LABEL}.plist"
+    rm -f "${AGENTS}/${OLLAMA_LABEL}.plist" "${AGENTS}/${CONNECTOR_LABEL}.plist" "${AGENTS}/${WATCH_LABEL}.plist"
     rm -f "${ROUTES}/ollama-gateway.cfg" "${ROUTES}/ollama-gateway.deadline.http" "${ROUTES}/ollama-gateway.env"
     if is_loaded "${PROXY_LABEL}"; then
         launchctl kickstart -k "${DOMAIN}/${PROXY_LABEL}"
