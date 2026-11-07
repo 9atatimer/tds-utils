@@ -82,8 +82,10 @@ Architectural Adherence (`docs/design/DESIGN.ARCH-ADHERENCE.md` and
 `docs/design/ARCHITECTURE.ARCH-ADHERENCE.md`, both merged 2026-10-24
 after the designomatic and self-review passes of tds-utils PR#605; epic
 Issue#588): the suite that executes the coding skill's mechanical tests
-over a repository as sensors on nine qualities, and refuses a change that
-trips one that was not already tripped. The route is tasks 056-072, each RED first, one
+over a repository as sensors on its qualities (ten since tds-utils PR#723:
+Layered is the dependency rule, Todd's LAW -- logic, action, workflow --
+is its own), and refuses a change that trips one that was not already
+tripped. The route is tasks 056-072, each RED first, one
 behavior per commit. Order:
 
 - task-056 -- the engine skeleton, `bin/adhere`, `load_declaration`, the
@@ -112,6 +114,16 @@ own stack with no introduced finding. The route from here:
   is Skills PR#179 (`adherence`). Next: GammaGo, tds-internal, the
   consumers; each one PR in that repository, pinned by both refs, declared
   package by package where it is a monorepo.
+- the retrospective of 2026-11-07 (the LAW leg: Skills PR#182 and PR#184,
+  tds-utils PR#723, Skills PR#185) found no drift between the two records
+  and the engine. Filed: Issue#728 (the Kind question has never been
+  answered by the real judge; `evals/kind.jsonl` is six hand-written
+  examples) and Issue#729 (adopters still pin the nine-quality engine;
+  Skills is bumped, template-tools is not). Lessons went to the adherence
+  skill (a renamed behavior is a removal to Record kept; never count a
+  record's own parts in prose). Two tsconfig tests that lacked the
+  `needs_cruiser` marker failed wherever dependency-cruiser is absent;
+  fixed in the retrospective's PR.
 - the retrospective of 2026-11-07 (the nested-declarations leg, tds-utils
   PR#708, Skills PR#178 and PR#179, template-tools PR#1062) filed: the
   decision-needed drift Issue#712 (a sub-project's declaration cannot

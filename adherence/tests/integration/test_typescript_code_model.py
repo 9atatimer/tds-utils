@@ -344,6 +344,7 @@ def test_a_diamond_of_extends_reads_each_configuration_once(
     assert max(reads.texts.values()) == 1
 
 
+@typescript_fixture.needs_cruiser
 def test_an_extends_chain_past_the_bound_is_cut_and_reported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -395,6 +396,7 @@ NESTED_JSON = b"[" * 100_000 + b"]" * 100_000
 FIRST_PAST = b"[" * (sys.getrecursionlimit() + 1) + b"]" * (sys.getrecursionlimit() + 1)
 
 
+@typescript_fixture.needs_cruiser
 @pytest.mark.parametrize(
     ("unreadable", "config"),
     [
