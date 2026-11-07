@@ -24,11 +24,7 @@ import click
 
 from adherence.application.bounded import judge_bounded
 from adherence.application.judge import judge_change
-from adherence.application.load import (
-    load_declaration,
-    read_as_one,
-    read_declarations,
-)
+from adherence.application.load import check_declarations, load_declaration
 from adherence.application.measure import measure
 from adherence.application.record import record_report
 from adherence.cli.presenters.json_report import report_json
@@ -224,17 +220,8 @@ def declaration_check(ctx: click.Context, root: str) -> None:
     """Read every adherence.toml in the working tree and say whether each,
     and all of them as one, can be read."""
     container = build(_chosen_stage(ctx) or Stage.LAPTOP, root=root)
-    head = Head.working_tree()
-    files = read_declarations(head, repository=container.repository, deadline=None)
-    merged = (
-        files
-        if isinstance(files, DeclarationUnreadable)
-        else read_as_one(
-            [read for _, read in files],
-            head,
-            repository=container.repository,
-            deadline=None,
-        )
+    files, merged = check_declarations(
+        Head.working_tree(), repository=container.repository, deadline=None
     )
     for line in _declaration_lines(files, merged):
         click.echo(line)

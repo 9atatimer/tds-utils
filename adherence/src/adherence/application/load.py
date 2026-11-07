@@ -106,6 +106,24 @@ def read_declarations(
     return tuple(files)
 
 
+def check_declarations(
+    at: Base | Head, *, repository: RepositoryPort, deadline: Deadline | None
+) -> tuple[
+    tuple[tuple[str, Declaration | DeclarationUnreadable], ...] | DeclarationUnreadable,
+    Declaration | DeclarationUnreadable,
+]:
+    """Every adherence.toml at the target, each as it reads (or why they
+    cannot be listed), and all of them read as one: what `declaration
+    check` reports."""
+    files = read_declarations(at, repository=repository, deadline=deadline)
+    if isinstance(files, DeclarationUnreadable):
+        return files, files
+    merged = read_as_one(
+        [read for _, read in files], at, repository=repository, deadline=deadline
+    )
+    return files, merged
+
+
 def load_declaration(
     at: Base | Head, *, repository: RepositoryPort, deadline: Deadline | None
 ) -> Declaration | DeclarationUnreadable:
@@ -115,9 +133,4 @@ def load_declaration(
     Declaration.none when the target has none; DeclarationUnreadable,
     naming why, when one cannot be read or parsed or they conflict.
     """
-    files = read_declarations(at, repository=repository, deadline=deadline)
-    if isinstance(files, DeclarationUnreadable):
-        return files
-    return read_as_one(
-        [read for _, read in files], at, repository=repository, deadline=deadline
-    )
+    return check_declarations(at, repository=repository, deadline=deadline)[1]

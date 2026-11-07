@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from adherence.adapters.fakes import FakeRepository
-from adherence.application.load import load_declaration
+from adherence.application.load import check_declarations, load_declaration
 from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import (
     DECLARATION_PATH,
@@ -201,3 +201,28 @@ def test_the_same_file_outside_any_test_layer_is_a_declaration() -> None:
 
     assert isinstance(loaded, DeclarationUnreadable)
     assert "lib/fixtures/broken/adherence.toml" in loaded.reason
+
+
+def test_check_declarations_returns_each_file_and_the_merge() -> None:
+    """Given two readable declarations that conflict over a real file, When
+    they are checked, Then each file reads on its own and the merge is the
+    refusal naming both."""
+    repository = FakeRepository(
+        {
+            HEAD: {
+                DECLARATION_PATH: b'[layers]\ndomain = ["**/*.py"]\n',
+                "pkg/adherence.toml": b'[layers]\nadapters = ["*.py"]\n',
+                "pkg/io.py": b"x = 1\n",
+            }
+        }
+    )
+
+    files, merged = check_declarations(HEAD, repository=repository, deadline=None)
+
+    assert not isinstance(files, DeclarationUnreadable)
+    assert [path for path, read in files if isinstance(read, Declaration)] == [
+        DECLARATION_PATH,
+        "pkg/adherence.toml",
+    ]
+    assert isinstance(merged, DeclarationUnreadable)
+    assert "adherence.toml and pkg/adherence.toml" in merged.reason
