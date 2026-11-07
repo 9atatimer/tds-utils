@@ -350,10 +350,14 @@ Issue#590). Two things to know before you measure locally:
   --base <sha> --head <sha>`; in the `ci` stage without those, every
   landing reads "reviews cannot be read" and the head's own declaration
   counts only as widening (G9).
-- A judged check needs a judge; none is bound in CI (the caller passes no
-  `secrets:`; design Q4 is why), so those checks are coverage, and a
-  change that touches a unit they read is `inconclusive` at best, which
-  exits 0 (Q10). `lowered` and `not run` are what fail.
+- A judged check needs a judge. The hosted judge is bound in CI since
+  2026-11-07 (tds-utils PR#722): `dist-ci.yml` passes
+  `ADHERENCE_OP_SA_TOKEN`, and `adherence.yml` finds the judge's item by
+  tag. A judged finding can lower a change there, as a rule finding can.
+  On the laptop the judge is the door (`DECIDE_URL`); without it the
+  judged checks are coverage, and a change that touches a unit they read
+  is `inconclusive` at best, which exits 0 (Q10). `lowered` and `not run`
+  are what fail.
 - `Covered` lowers the verdict for every unit a change creates outside the
   declaration in force, and a change's own widening of `adherence.toml`
   counts only for PATHS it creates: a function added to a file that

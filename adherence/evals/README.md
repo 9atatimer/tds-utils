@@ -65,4 +65,13 @@ strict mode is a configuration flag that decides validity, and
 - **Check each new wording against every example of both labels, by
   reading.** The floor only says nothing is confidently wrong.
 - **Run the floor three times against the hosted judge** before trusting
-  a change: the judge is probabilistic.
+  a change: the judge is probabilistic. The command is `uv run pytest
+  tests/integration/test_eval_floor.py` from `adherence/`, with
+  `DECIDE_GATEWAY_URL` and `DECIDE_GATEWAY_TOKEN` read from the judge's
+  item; add `-k <question id>` for one question.
+- **Know where the wording lives.** A question's wording is in
+  `adherence/src/adherence/domain/questions.py`, and its id, kind and
+  options must not change. If a new wording changes how an example
+  should be read, update that example's `note` in `<question>.jsonl`
+  in the same change. A changed label is a decision about the example,
+  not a fix to the wording.
