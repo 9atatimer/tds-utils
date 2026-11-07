@@ -22,9 +22,10 @@ from adherence.application.latch import (
     LatchedRepository,
     latched_analyzers,
 )
-from adherence.domain.checks.run import each_check, gathered
+from adherence.domain.checks.run import RecordScope, each_check, gathered
 from adherence.domain.coverage import (
     Coverage,
+    undeclared_subtree,
     unmeasured,
     unmeasured_in,
     unmodelled,
@@ -34,6 +35,7 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
     Declaration,
     DeclarationUnreadable,
+    RecordPaths,
     exempted,
     refusal_notices,
     with_overrides,
@@ -44,6 +46,7 @@ from adherence.domain.model import (
     CodeModel,
     Metrics,
     MetricsUnavailable,
+    UnitKind,
     has_no_extension,
     language_of,
     merged,
@@ -453,6 +456,33 @@ def _design_inputs(
     )
 
 
+def _record_scopes(
+    model: CodeModel,
+    declaration: Declaration,
+    records: RecordsPort,
+    at: Base | Head,
+    deadline: Deadline | None,
+) -> tuple[RecordScope, ...]:
+    """The model's files grouped by the design record and radar their
+    nearest governing declarations name, each group's read once; none when
+    every file names the same pair, so the run reads them as it always has."""
+    groups: dict[tuple[RecordPaths | None, str | None], set[str]] = {}
+    for unit in model.units:
+        if unit.kind is UnitKind.FILE:
+            key = (declaration.records_for(unit.path), declaration.radar_for(unit.path))
+            groups.setdefault(key, set()).add(unit.path)
+    if len(groups) < 2:
+        return ()
+    scopes: list[RecordScope] = []
+    for (paths, radar), files in groups.items():
+        scoped = replace(
+            declaration, records=paths, radar=radar, record_scopes=(), radar_scopes=()
+        )
+        design, tech = _design_inputs(records, at, scoped, deadline)
+        scopes.append(RecordScope(frozenset(files), scoped, design, tech))
+    return tuple(scopes)
+
+
 def _bodies(model: CodeModel) -> tuple[BodyDigest, ...]:
     """Each named definition's body digest, by which a rename is told."""
     return tuple(
@@ -509,6 +539,15 @@ def measure_reporting(
     paths = _listed(repository.tree(at, deadline), analyzers, identity, at)
     if isinstance(paths, Report):
         return paths
+    # A path no governing declaration reaches has no adherence: it is never
+    # modelled, so no check reads it and Covered never names it.
+    ungoverned = undeclared_subtree(
+        [p for p in paths if declaration.declared and not declaration.governs(p)]
+    )
+    reported(ungoverned, finished)
+    paths = tuple(
+        p for p in paths if not declaration.declared or declaration.governs(p)
+    )
     modelled = _with_metrics(
         _languages_modelled(
             paths,
@@ -529,13 +568,19 @@ def measure_reporting(
         merged(modelled.models),
         {path: CodeLanguage.SHELL.value for path in modelled.shell},
     )
-    design, tech = _design_inputs(
-        LatchedRecords(records, latch), at, declaration, deadline
+    latched_records = LatchedRecords(records, latch)
+    scopes = _record_scopes(whole, declaration, latched_records, at, deadline)
+    design, tech = (
+        (scopes[0].records, scopes[0].radar)
+        if scopes
+        else _design_inputs(latched_records, at, declaration, deadline)
     )
     reported(unmodelled(whole, declared=declaration.declared), finished)
     sources, unmeasured_checks = modelled.sources, modelled.unmeasured_checks
     done: list[FinishedCheck] = []
-    for check in each_check(whole, declaration, design, parameters, radar=tech):
+    for check in each_check(
+        whole, declaration, design, parameters, radar=tech, scopes=scopes
+    ):
         done.append(check)
         if finished is not None and not check.questions:
             _report(
@@ -562,6 +607,7 @@ def measure_reporting(
         findings=findings,
         notices=(*refusal_notices(declaration), *applied),
         coverage=(
+            *ungoverned,
             *modelled.coverage,
             *unmodelled(whole, declared=declaration.declared),
             *checked.coverage,

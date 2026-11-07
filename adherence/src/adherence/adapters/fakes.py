@@ -300,7 +300,9 @@ class FakeRecords:
     """RecordsPort over a mapping of target -> the records, the
     RecordsUnavailable or the TimedOut the test scripts for it, so base and
     head can hold different records. A target it does not hold has none.
-    `radar` scripts the radar per target the same way. Its clock is frozen
+    `radar` scripts the radar per target the same way. `by_record` scripts
+    the records by the design record the declaration names, whatever the
+    target, so two sub-projects can name two records. Its clock is frozen
     at `now`, so a deadline at or before it has passed. `asked` lists every
     call, by method and target, in order."""
 
@@ -310,10 +312,13 @@ class FakeRecords:
         *,
         radar: Mapping[Base | Head, Radar | RecordsUnavailable | TimedOut]
         | None = None,
+        by_record: Mapping[str, DesignRecords | RecordsUnavailable | TimedOut]
+        | None = None,
         now: float = 1e9,
     ) -> None:
         self._by_target = by_target
         self._radar = radar or {}
+        self._by_record = by_record or {}
         self._now = now
         self.asked: list[tuple[str, Base | Head]] = []
 
@@ -323,6 +328,9 @@ class FakeRecords:
         self.asked.append(("records", at))
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("read the design records")
+        named = declaration.records
+        if named is not None and named.design in self._by_record:
+            return self._by_record[named.design]
         return self._by_target.get(
             at, RecordsUnavailable("no design record at this target")
         )
