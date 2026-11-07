@@ -144,6 +144,7 @@ def judge_with(
     root: bytes | None = HEXAGON,
     histories: Mapping[str, tuple[str, ...] | Refused | TimedOut] | None = None,
     unfound_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
+    records_port: FakeRecords | None = None,
 ) -> Report:
     """judge_change of HEAD against BASE, each holding its files and the
     root declaration (the hexagon; None for none) unless the files carry
@@ -175,7 +176,9 @@ def judge_with(
         },
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
-        records=FakeRecords(records or {}),
+        records=records_port
+        if records_port is not None
+        else FakeRecords(records or {}),
         judge=judge if judge is not None else passing_judge(),
         reports=store if store is not None else FakeReportStore(),
         parameters=judged_parameters(),

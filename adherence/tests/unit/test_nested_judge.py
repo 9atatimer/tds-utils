@@ -5,12 +5,23 @@ adherence and A declaration in force is settled per file)."""
 
 from __future__ import annotations
 
-from adherence.adapters.fakes import FakeReviews
+from adherence.adapters.fakes import FakeRecords, FakeReviews
 from adherence.domain.coverage import UNDECLARED_SUBTREE
 from adherence.domain.declaration import NoLandingPR
+from adherence.domain.model import (
+    Body,
+    CodeModel,
+    Definition,
+    Parameter,
+    Signature,
+    Unit,
+    UnitKind,
+)
+from adherence.domain.records import Behavior, DesignRecords, Seam, SeamKind, Term
 from adherence.domain.report import Report
 from adherence.ports.repository import Refused
 from tests.judge_kit import BASE, HEAD, judge_with
+from tests.measure_kit import HEXAGON
 
 SUB = b"""
 [layers]
@@ -283,3 +294,100 @@ def test_a_nested_files_landings_are_asked_for_with_its_own_path() -> None:
 
     assert (EARLIER, "pkg/adherence.toml") in reviews.asked_for, reviews.asked_for
     assert (BASE.revision, "adherence.toml") in reviews.asked_for
+
+
+ROOT_RECORDS = (
+    HEXAGON + b'\n[records]\ndesign = "docs/D.md"\narchitecture = "docs/A.md"\n'
+)
+CHILD_RECORDS = b"""
+[layers]
+application = ["src/application/**"]
+ports = ["src/ports/**"]
+
+[override.records]
+design = "D.md"
+architecture = "A.md"
+"""
+ROOT_USE = "src/app/application/close.py"
+CHILD_USE = "sub/src/application/close.py"
+
+
+def _scoped(design: str, architecture: str, *, kept: bool) -> DesignRecords:
+    """A record pair defining the term Order, naming the port Store, and,
+    when `kept`, stating one behavior."""
+    return DesignRecords(
+        behaviors=(Behavior("An order closes", "Given, When, Then", design, 9),)
+        if kept
+        else (),
+        domain_language=(Term("Order", design, 20),) if design == "docs/D.md" else (),
+        seams=(Seam("Store", SeamKind.PORT, architecture, 30),),
+    )
+
+
+def _use_case(path: str) -> Definition:
+    unit = Unit(path, UnitKind.FUNCTION, "close", 1, 2, None)
+    return Definition(
+        unit,
+        Signature((Parameter("order", "Order", False, False),), None),
+        Body("return order", (), ()),
+        (),
+        (),
+        None,
+        False,
+    )
+
+
+def _port(path: str) -> Definition:
+    unit = Unit(path, UnitKind.TYPE, "Store", 1, 2, None)
+    return Definition(unit, None, Body("...", (), ()), (), (), None, False)
+
+
+def test_each_records_scope_is_judged_against_its_own_record() -> None:
+    """Given a root declaration and a sub-project overriding its records,
+    the root's record defining Order and both naming the port Store, which
+    only the root's code defines, and the sub-project's record losing a
+    behavior at the head, When the change is judged, Then Change finds
+    only the sub-project's Store missing, Language only the sub-project's
+    Order undefined, and Record kept only the sub-project's lost behavior."""
+    files = {
+        "sub/adherence.toml": CHILD_RECORDS,
+        ROOT_USE: CLEAN,
+        "src/app/ports/store.py": CLEAN,
+        CHILD_USE: CLEAN,
+    }
+    facts = CodeModel(
+        units=(),
+        definitions=(
+            _use_case(ROOT_USE),
+            _use_case(CHILD_USE),
+            _port("src/app/ports/store.py"),
+        ),
+    )
+    records = FakeRecords(
+        {},
+        by_record={
+            "docs/D.md": _scoped("docs/D.md", "docs/A.md", kept=True),
+            (BASE, "sub/D.md"): _scoped("sub/D.md", "sub/A.md", kept=True),
+            (HEAD, "sub/D.md"): _scoped("sub/D.md", "sub/A.md", kept=False),
+        },
+    )
+
+    report = judge_with(
+        files,
+        files,
+        facts=facts,
+        root=ROOT_RECORDS,
+        histories={"sub/adherence.toml": (BASE.revision,)},
+        records_port=records,
+    )
+
+    def found(check: str) -> list[str]:
+        return sorted(
+            f"{f.unit.path}:{f.subject}"
+            for f in report.findings
+            if f.check.name == check
+        )
+
+    assert found("Change") == ["sub/A.md:Store: no port"], found("Change")
+    assert found("Language") == [f"{CHILD_USE}:Order in close"], found("Language")
+    assert found("Record kept") == ["sub/D.md:An order closes"], found("Record kept")
