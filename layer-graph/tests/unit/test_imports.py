@@ -2,8 +2,11 @@
 
 from layer_graph.domain.imports import (
     PythonImport,
+    TsImport,
+    export_surface,
     python_imports,
     reexport_specifiers,
+    ts_imports,
     ts_specifiers,
     vue_scripts,
 )
@@ -115,3 +118,62 @@ def test_reexport_specifiers_empty_file_is_not_a_barrel() -> None:
     """Given a file with only a comment, When read, Then it is not a barrel:
     a barrel re-exports something."""
     assert reexport_specifiers("// nothing here\n") is None
+
+
+def test_ts_imports_names_what_a_statement_binds() -> None:
+    """Given named, default, type, aliased, namespace and side-effect forms,
+    When scanned, Then each statement carries the source-side names it binds,
+    or None when it binds a whole module."""
+    text = (
+        "import { a, type B, c as d } from './x';\n"
+        "import e, { f } from './y';\n"
+        "import * as ns from './z';\n"
+        "import './side';\n"
+        "export { g as h } from './w';\n"
+        "export * from './all';\n"
+        "const m = require('./r');\n"
+    )
+    assert ts_imports(text) == [
+        TsImport("./x", ("a", "B", "c")),
+        TsImport("./y", ("default", "f")),
+        TsImport("./z", None),
+        TsImport("./side", None),
+        TsImport("./w", ("g",)),
+        TsImport("./all", None),
+        TsImport("./r", None),
+    ]
+
+
+def test_export_surface_reads_local_and_reexported_names() -> None:
+    """Given every local export form and every re-export form, When the
+    surface is read, Then local names, named re-exports and stars are
+    returned."""
+    text = (
+        "export function f() {}\n"
+        "export async function g() {}\n"
+        "export const h = 1;\n"
+        "export let i = 1;\n"
+        "export class J {}\n"
+        "export abstract class K {}\n"
+        "export interface L {}\n"
+        "export type M = 1;\n"
+        "export enum N { A }\n"
+        "export const enum O { A }\n"
+        "export namespace P {}\n"
+        "export default 3;\n"
+        "const q = 1, r = 2;\n"
+        "export { q, r as s };\n"
+        "export { t as u, default as V } from './t';\n"
+        "export * as w from './w';\n"
+        "export * from './star';\n"
+    )
+    surface = export_surface(text)
+    assert surface.local == frozenset(
+        {"f", "g", "h", "i", "J", "K", "L", "M", "N", "O", "P", "default", "q", "s"}
+    )
+    assert surface.named == (
+        ("u", "t", "./t"),
+        ("V", "default", "./t"),
+        ("w", "*", "./w"),
+    )
+    assert surface.stars == ("./star",)

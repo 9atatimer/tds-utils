@@ -67,6 +67,7 @@ def test_main_prints_versioned_json_with_the_contract_shape(
         "imports": 20,
         "unresolved": 1,
         "viaBarrel": 0,
+        "barrelFallback": 0,
     }
 
 
@@ -151,6 +152,7 @@ def test_main_sees_through_barrels_by_default(
     assert main(["--root", str(root)]) == 0
     document = json.loads(capsys.readouterr().out)
     assert document["stats"]["viaBarrel"] == 6
+    assert document["stats"]["barrelFallback"] == 1
     assert document["findings"]["outward"] == [
         {"from": "domain/table", "to": "application/table", "imports": 1}
     ]

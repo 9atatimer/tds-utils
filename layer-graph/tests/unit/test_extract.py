@@ -255,10 +255,11 @@ def test_extract_barrels_redirect_imports_to_reexported_files(
     assert "composition root/core:index" not in _node_ids(graph)
     assert "composition root/index" in _node_ids(graph)
     assert edges[("adapters/adapters-memory", "domain/timeline")] == (1, "inward")
-    assert edges[("adapters/adapters-memory", "application/table")] == (1, "inward")
+    assert ("adapters/adapters-memory", "application/table") not in edges
     assert edges[("adapters/adapters-memory", "domain/kernel")] == (1, "inward")
     assert edges[("adapters/components", "domain/timeline")] == (1, "inward")
     assert edges[("composition root/index", "application/table")] == (1, "inward")
+    assert edges[("composition root/index", "domain/timeline")] == (1, "inward")
     assert edges[("ports/ports", "domain/kernel")] == (1, "inward")
     kernel = next(n for n in graph.nodes if n.id == "domain/kernel")
     assert kernel.files == ("packages/core/src/domain/kernel/ids.ts",)
@@ -285,8 +286,38 @@ def test_extract_barrels_count_redirected_imports(tmp_path: Path) -> None:
         1,
         6,
     )
+    assert stats.barrel_fallback == 1
 
 
 def test_extract_without_barrels_counts_none_via_barrel(tmp_path: Path) -> None:
     """Given barrels off, When extracted, Then no import is redirected."""
     assert _graph(tmp_path, "ts_mono").stats.via_barrel == 0
+
+
+def test_extract_barrels_resolve_named_imports_by_symbol(tmp_path: Path) -> None:
+    """Given named, aliased, type, default-alias, namespace, nested and
+    re-exported imports through a package barrel, When extracted, Then each
+    statement reaches only the node that declares what it names."""
+    edges = _edges(_graph(tmp_path, "ts_barrels", barrels=True))
+    by_source: dict[str, set[str]] = {}
+    for source, target in edges:
+        by_source.setdefault(source, set()).add(target)
+    assert by_source["adapters/named"] == {"domain/alpha"}
+    assert by_source["adapters/locals"] == {"domain/alpha"}
+    assert by_source["adapters/reexp"] == {"domain/alpha"}
+    assert by_source["adapters/nsuse"] == {"domain/space"}
+    assert by_source["adapters/def"] == {"domain/widget"}
+    assert by_source["adapters/deepuse"] == {"domain/deep"}
+    assert edges[("adapters/named", "domain/alpha")] == (1, "inward")
+
+
+def test_extract_barrels_fall_back_to_fan_out_and_count_it(tmp_path: Path) -> None:
+    """Given a namespace import, a name the barrel lacks and a default import
+    the barrel never re-exports, When extracted, Then each fans out to every
+    node behind the barrel and counts as a fallback."""
+    graph = _graph(tmp_path, "ts_barrels", barrels=True)
+    edges = _edges(graph)
+    everything = {"domain/alpha", "domain/space", "domain/widget", "domain/deep"}
+    for source in ("adapters/star", "adapters/missing", "adapters/defbarrel"):
+        assert {t for s, t in edges if s == source} == everything
+    assert (graph.stats.via_barrel, graph.stats.barrel_fallback) == (9, 3)

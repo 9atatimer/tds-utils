@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from layer_graph.domain.barrels import through_barrels
+from layer_graph.domain.barrels import Surface, redirected
 from layer_graph.domain.context import (
     Origin,
     context_for,
@@ -37,9 +37,10 @@ from layer_graph.domain.errors import DeclarationUnreadable, NoDeclaration
 from layer_graph.domain.glob import static_prefix
 from layer_graph.domain.graph import cycles, direction
 from layer_graph.domain.imports import (
+    export_surface,
     python_imports,
     reexport_specifiers,
-    ts_specifiers,
+    ts_imports,
     vue_scripts,
 )
 from layer_graph.domain.report import Edge, LayerGraph, Node, Stats
@@ -216,20 +217,41 @@ def classify(
 # --- Flow: barrels ---------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class Barrels:
+    """Every barrel and the files it re-exports, and every module's export
+    surface with its re-exports resolved."""
+
+    files: dict[str, tuple[str, ...]]
+    surfaces: dict[str, Surface]
+
+
 def read_barrels(
     files: Sequence[str], *, source: RepoSource, workspace: Workspace
-) -> dict[str, tuple[str, ...]]:
-    """Every barrel in the repository and the files its re-exports resolve to."""
+) -> Barrels:
+    """The repository's barrels and export surfaces."""
     barrels: dict[str, tuple[str, ...]] = {}
+    surfaces: dict[str, Surface] = {}
     for path in files:
         if not path.endswith(BARREL_EXTENSIONS):
             continue
-        specifiers = reexport_specifiers(source.read_text(path) or "")
-        if specifiers is None:
-            continue
-        resolved = (resolve_ts(path, s, workspace) for s in specifiers)
-        barrels[path] = tuple(dict.fromkeys(r for r in resolved if r))
-    return barrels
+        text = source.read_text(path) or ""
+        surface = export_surface(text)
+        surfaces[path] = Surface(
+            local=surface.local,
+            named=tuple(
+                (exported, imported, resolve_ts(path, spec, workspace))
+                for exported, imported, spec in surface.named
+            ),
+            stars=tuple(
+                r for spec in surface.stars if (r := resolve_ts(path, spec, workspace))
+            ),
+        )
+        specifiers = reexport_specifiers(text)
+        if specifiers is not None:
+            resolved = (resolve_ts(path, s, workspace) for s in specifiers)
+            barrels[path] = tuple(dict.fromkeys(r for r in resolved if r))
+    return Barrels(barrels, surfaces)
 
 
 # --- Flow: imports -----------------------------------------------------------------
@@ -237,15 +259,21 @@ def read_barrels(
 
 def _targets(
     path: str, *, source: RepoSource, workspace: Workspace
-) -> list[tuple[str, ...]]:
-    """Per import statement in a unit file, the repository files it reaches."""
+) -> list[tuple[tuple[str, ...], tuple[str, ...] | None]]:
+    """Per import statement in a unit file, the repository files it reaches
+    and the names it binds (None for a whole module, and for Python)."""
     text = source.read_text(path) or ""
     if path.endswith(".py"):
-        return [resolve_python(path, i, workspace) for i in python_imports(text)]
+        return [
+            (resolve_python(path, i, workspace), None) for i in python_imports(text)
+        ]
     if path.endswith(".vue"):
         text = vue_scripts(text)
-    found = (resolve_ts(path, s, workspace) for s in ts_specifiers(text))
-    return [(t,) if t else () for t in found]
+    found: list[tuple[tuple[str, ...], tuple[str, ...] | None]] = []
+    for statement in ts_imports(text):
+        target = resolve_ts(path, statement.specifier, workspace)
+        found.append(((target,) if target else (), statement.names))
+    return found
 
 
 # --- Flow: the use case ------------------------------------------------------------
@@ -256,8 +284,10 @@ def extract(
 ) -> LayerGraph:
     """A repository's layer graph: its nodes, the edges between them, and the
     findings (outward edges, cycles, unassigned files). With `barrels`, an
-    import landing on a re-export-only file reaches the files it re-exports,
-    one edge per node reached, and the barrel itself is no node.
+    import landing on a re-export-only file reaches the files that declare
+    the names it imports (every file behind the barrel for a whole-module
+    import or a name not found), one edge per node reached, and the barrel
+    itself is no node.
 
     Raises:
         NoDeclaration: the repository has no adherence.toml.
@@ -266,9 +296,12 @@ def extract(
     files = source.files()
     declarations = read_declarations(files, source=source)
     workspace = read_workspace(files, source=source)
-    barrel_map = (
-        read_barrels(files, source=source, workspace=workspace) if barrels else {}
+    seen_through = (
+        read_barrels(files, source=source, workspace=workspace)
+        if barrels
+        else Barrels({}, {})
     )
+    barrel_map = seen_through.files
     classified = classify(
         files,
         declarations,
@@ -283,14 +316,17 @@ def extract(
         members[node_of[unit.path]].append(unit)
 
     counts: Counter[tuple[str, str]] = Counter()
-    imports = unresolved = via_barrel = 0
+    imports = unresolved = via_barrel = fallback = 0
     for unit in classified.units:
-        for resolved in _targets(unit.path, source=source, workspace=workspace):
+        for resolved, bound in _targets(unit.path, source=source, workspace=workspace):
             imports += 1
             if not resolved:
                 unresolved += 1
-            reached, crossed = through_barrels(resolved, barrel_map)
-            via_barrel += crossed
+            via_barrel += any(t in barrel_map for t in resolved)
+            reached, fell_back = redirected(
+                resolved, bound, seen_through.surfaces, barrel_map
+            )
+            fallback += fell_back
             targets = {node_of[t] for t in reached if t in node_of}
             for target in targets - {node_of[unit.path]}:
                 counts[(node_of[unit.path], target)] += 1
@@ -315,7 +351,7 @@ def extract(
         edges=edges,
         cycles=tuple(tuple(c) for c in cycles(counts)),
         unassigned=classified.unassigned,
-        stats=Stats(len(classified.units), imports, unresolved, via_barrel),
+        stats=Stats(len(classified.units), imports, unresolved, via_barrel, fallback),
     )
 
 

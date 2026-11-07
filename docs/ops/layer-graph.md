@@ -167,18 +167,34 @@ re-exports: `export * from`, `export * as ns from`, `export { ... } from`,
 `src/index.ts` that lists its contexts is the usual case. By default the
 tool sees through barrels; `--no-barrels` turns this off.
 
-- An import that lands on a barrel is redirected to the files the barrel
-  re-exports, through nested barrels, with cycles between barrels
-  followed once.
-- The redirected statement makes one edge count for each node it reaches.
-  It is not divided among them, and the tool does not match imported names
-  to exported names. So an import of one symbol from a package barrel
-  counts toward every node the barrel re-exports.
+- A named import that lands on a barrel is resolved by symbol. This
+  covers `import { a, type B, c as d }`, a default import, and
+  `export { a } from` in a unit file. Each imported name is followed
+  through the barrel to the file that declares it:
+  - `export { x as y } from` maps `y` to `x` in its target, and
+    `export { default as Y } from` maps `Y` to that file's default.
+  - `export * as ns from` binds `ns` to the whole target file. Behind a
+    nested barrel that is every file it re-exports.
+  - `export * from` targets are searched in order for the name. `export *`
+    never carries `default`.
+  - Nested barrels are followed; a cycle between barrels ends the search.
+  - A non-barrel file declares a name when it exports it locally (`export
+    function`, `const`, `let`, `var`, `class`, `interface`, `type`,
+    `enum`, `const enum`, `namespace`, `module`, `export default`, or an
+    `export { x }` list) or re-exports it.
+- Fallback: a whole-module import (`import * as`, a side-effect import,
+  `require`, `import()`, `export *` in a unit file), or a name the search
+  cannot find (for example a default import that the barrel does not
+  re-export by name), reaches every file behind the barrel, through
+  nested barrels. `stats.barrelFallback` counts these statements.
+- A redirected statement adds one to the edge for each distinct node it
+  reaches, however many of its names land in that node.
 - A barrel is never a unit. Its own re-exports are not counted in
   `stats.imports`, and it is in no node's `files`. A node whose only file
   was a barrel does not appear. A barrel that no layer claims is still
   listed as unassigned.
-- `stats.viaBarrel` counts the import statements that were redirected.
+- `stats.viaBarrel` counts the import statements that landed on a
+  barrel, resolved by symbol or by fallback.
 - Why: a declaration that puts a package's barrel in the composition root
   would otherwise turn every `import ... from '@scope/core'` in an adapter
   into an outward edge, although the adapter depends on the files behind
@@ -210,8 +226,8 @@ tool sees through barrels; `--no-barrels` turns this off.
 Top-level keys, always in this order:
 
 - `schema` -- the string `"layer-graph/1"`. Removing or changing a field
-  below gets a new version; adding a field does not (`stats.viaBarrel` was
-  added under `layer-graph/1`).
+  below gets a new version; adding a field does not (`stats.viaBarrel` and
+  `stats.barrelFallback` were added under `layer-graph/1`).
 - `root` -- the absolute path of the repository root.
 - `repo` -- `owner/name` from the `origin` remote, or `null`. It is `null`
   when the root is not itself the top of a git work tree.
@@ -244,12 +260,17 @@ Top-level keys, always in this order:
   - `unresolved` -- how many of them reached no file in the repository.
   - `viaBarrel` -- how many of them were redirected through a barrel; `0`
     with `--no-barrels`.
+  - `barrelFallback` -- how many of the redirected statements fell back to
+    every file behind the barrel; `0` with `--no-barrels`.
 
 ## Known limits
 
-- Barrel redirection is by file, not by symbol, so edges through a package
-  barrel over-count: each such import adds one to every node the barrel
-  reaches. Read the `imports` count of such an edge as an upper bound.
+- Symbol resolution reads export statements, not types: a name exported
+  by `export =`, by a destructuring `export const { a } = ...`, or by a
+  second declarator (`export const a = 1, b = 2` finds only `a`) is not
+  found, and that import falls back to every file behind the barrel.
+  Fallback edges are upper bounds; `stats.barrelFallback` says how many
+  there are.
 - Files, not regions: `[layers] regions` (line ranges) and section markers
   are ignored, so a one-file tool declared by region is one unit with no
   layer of its own. All other declaration sections are ignored too.
