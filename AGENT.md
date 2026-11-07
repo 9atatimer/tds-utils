@@ -614,8 +614,12 @@ This repo lands PRs through the tedium merge bot; the rules are in
   a design or architecture record in phases 2 and 3 gets designomatic
   instead. Skills, personas, this file, `clai.d/AGENT.global.md`, prompts,
   CI workflows and gate configuration are operating rules, not
-  documentation: a PR touching them takes the full ladder. The gates
-  skill, Spend Review Turns on Load-Bearing Fixes, has the rule.
+  documentation: a PR touching them takes the full ladder. OCR skips
+  Markdown, so a PR whose every changed file is Markdown never posts
+  `/ocr`, operating rules included: the three-panelist self-review is
+  its agentic rung and the human review is still owed (Skills
+  issue#193). The gates skill, Spend Review Turns on Load-Bearing Fixes,
+  has the rule.
 - Reply to each comment and RESOLVE the thread as you address it; reject
   ones you disagree with, on the thread, with a concrete reason.
 - Watch PRs via GitHub webhook EVENTS (the activity subscription), NEVER via
