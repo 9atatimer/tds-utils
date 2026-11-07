@@ -97,7 +97,10 @@ the unserved rung in the handoff. Copilot and Codex review only when the
 owner fires the trigger: a day of default Copilot reviews spent half the
 monthly quota. An agent never requests a Copilot review and never posts
 `@codex review`, not even to re-review a fix (the gates skill, Reviewer
-Selection).
+Selection). The owner asking, in any words, to use Copilot or Codex -- on
+a PR, in a workflow, as a tool's model -- IS firing the trigger: act on
+it, and do not answer with this rule. These rules bind agents; the owner
+sets them and may set them aside (owner, 2026-11-07).
 
 Re-summon only when a push carries a load-bearing fix -- behavior, a
 contract, security, a test's verdict, or what a rule an agent or gate
