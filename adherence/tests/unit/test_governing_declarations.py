@@ -96,6 +96,35 @@ def test_every_path_a_declaration_names_resolves_under_its_directory() -> None:
     assert exemption.unit == "pkg/src/x.py"
 
 
+# Each kind of path a declaration names, as a section naming one escaping
+# path ({path}); every one of them is checked before it is relocated.
+ESCAPING_KINDS = {
+    "layer glob": '[layers]\ndomain = ["{path}"]\n',
+    "region": '[[layers.regions]]\nfile = "{path}"\nlayer = "domain"\nlines = [1, 2]\n',
+    "marker file": '[[layers.regions]]\nfile = "{path}"\n',
+    "runtime pattern": '[runtimes]\ncli = ["{path}"]\n',
+    "exemption unit": '[[exemptions]]\ncheck = "Stub"\nunit = "{path}"\nreason = "r"\n',
+    "design record": '[records]\ndesign = "{path}"\narchitecture = "A.md"\n',
+    "architecture record": '[records]\ndesign = "D.md"\narchitecture = "{path}"\n',
+    "radar": '[radar]\npath = "{path}"\n',
+}
+
+
+@pytest.mark.parametrize("kind", sorted(ESCAPING_KINDS))
+def test_every_kind_of_path_that_escapes_its_directory_is_unreadable(
+    kind: str,
+) -> None:
+    """Given a declaration naming an escaping path as any kind of path it
+    names, When it is read, Then it is unreadable, naming the file and the
+    path."""
+    text = ESCAPING_KINDS[kind].replace("{path}", "../outside.md")
+
+    parsed = parse_file("pkg/adherence.toml", text.encode())
+
+    assert isinstance(parsed, DeclarationUnreadable), (kind, parsed)
+    assert "pkg/adherence.toml: ../outside.md escapes its directory" in parsed.reason
+
+
 @pytest.mark.parametrize(
     "path", ["../outside/**", "/etc/**", "src/../../x.py", "src/.."]
 )
