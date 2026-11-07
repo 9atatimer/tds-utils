@@ -106,10 +106,10 @@ own stack with no introduced finding. The route from here:
 
 - the rollout (Issue#601): Skills is gated (Skills PR#174, PR#175);
   template-tools is declared and judged, advisory (template-tools PR#1058,
-  PR#1059) until the owner rules Issue#695 (Covered is tree-wide, so a
-  partially declared monorepo cannot gate without failing every change
-  that creates a unit outside its declared layers; the recommendation is
-  to scope Covered to `[runtimes]`). Both run the engine at c11477c
+  PR#1059); Issue#695 ruled 2026-11-07 (nested declarations: a
+  sub-project's `adherence.toml` governs its subtree, an undeclared
+  subtree has no adherence), so template-tools declares per package and
+  joins `gate.needs` once this lands. Both run the engine at c11477c
   (PR#694: no code scanning upload). Next: GammaGo, tds-internal, the
   consumers; each one PR in that repository, pinned by both refs, and each
   monorepo meets Issue#695 the same way.
