@@ -15,6 +15,7 @@ from collections.abc import Callable
 
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
+    DECLARATION_PATH,
     Landing,
     NoLandingPR,
     ReviewsUnavailable,
@@ -31,7 +32,7 @@ class NoReviews:
         self._clock = clock
 
     def approvals(
-        self, commit: str, deadline: Deadline | None
+        self, commit: str, deadline: Deadline | None, *, path: str = DECLARATION_PATH
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
         if deadline is not None and deadline.epoch_seconds <= self._clock():
             return TimedOut("read the reviews")

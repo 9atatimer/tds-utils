@@ -88,6 +88,22 @@ def test_github_reviews_sends_the_token_and_asks_the_rest_api() -> None:
     ]
 
 
+def test_github_reviews_read_the_declaration_file_they_are_asked_about() -> None:
+    """Given a landing of a sub-project's declaration, When its approvals are
+    asked for with that file's path, Then the reviewed commit's text is read
+    from that path, not the root's."""
+    opener, handler = fixture_opener()
+
+    GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    ).approvals(LANDED, None, path="pkg/adherence.toml")
+
+    asked = [r.full_url.split("?")[0] for r in handler.requests]
+    contents = f"https://api.github.com/repos/{REPOSITORY}/contents/"
+    assert f"{contents}pkg/adherence.toml" in asked, asked
+    assert f"{contents}{DECLARATION_PATH}" not in asked, asked
+
+
 def test_github_reviews_reads_the_merger_from_the_pull_request_itself() -> None:
     """Given landing pull requests whose own object names no merger -- the
     key absent, or null -- When their approvals are asked for, Then the

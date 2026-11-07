@@ -17,6 +17,7 @@ from typing import TypeVar
 
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
+    DECLARATION_PATH,
     Declaration,
     Landing,
     NoLandingPR,
@@ -126,11 +127,11 @@ class LatchedReviews:
         self._latch = latch
 
     def approvals(
-        self, commit: str, deadline: Deadline | None
+        self, commit: str, deadline: Deadline | None, *, path: str = DECLARATION_PATH
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
         if self._latch.tripped:
             return self._latch.unasked("read the reviews")
-        return self._latch.seen(self._inner.approvals(commit, deadline))
+        return self._latch.seen(self._inner.approvals(commit, deadline, path=path))
 
 
 class LatchedCodeModel:

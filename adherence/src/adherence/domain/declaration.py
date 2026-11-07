@@ -1178,6 +1178,7 @@ class LandedRevision:
     answer: Landing | NoLandingPR | Unknown | ReviewsUnavailable
     text: DeclarationText = None
     reviewed: tuple[tuple[str, DeclarationText], ...] = ()
+    path: str = DECLARATION_PATH
 
 
 @dataclass(frozen=True, slots=True)
@@ -1238,7 +1239,7 @@ def _short(commit: str) -> str:
 
 def _skipped(revision: LandedRevision, why: str) -> Notice:
     return Notice(
-        f"{DECLARATION_PATH} landed at {_short(revision.commit)}: {why}; not in force"
+        f"{revision.path} landed at {_short(revision.commit)}: {why}; not in force"
     )
 
 
@@ -1253,21 +1254,21 @@ def _refusal(
     if is_same_login(approval.reviewer, author):
         return AUTHOR_REFUSAL
     if not any(is_same_login(f"@{approval.reviewer}", o) for o in owners):
-        return f"not a code owner of {DECLARATION_PATH} by the base's CODEOWNERS"
+        return f"not a code owner of {revision.path} by the base's CODEOWNERS"
     landed = revision.text
     text = dict(revision.reviewed).get(
         approval.commit, DeclarationUnreadable("not read")
     )
     if isinstance(landed, DeclarationUnreadable):
-        return f"the landed {DECLARATION_PATH} cannot be read: {landed.reason}"
+        return f"the landed {revision.path} cannot be read: {landed.reason}"
     if isinstance(text, DeclarationUnreadable):
         return (
-            f"the {DECLARATION_PATH} it reviewed at {_short(approval.commit)} "
+            f"the {revision.path} it reviewed at {_short(approval.commit)} "
             f"cannot be read: {text.reason}"
         )
     if text != landed:
         return (
-            f"it reviewed {_short(approval.commit)}, whose {DECLARATION_PATH} "
+            f"it reviewed {_short(approval.commit)}, whose {revision.path} "
             "differs from the landed one"
         )
     return None
@@ -1278,32 +1279,33 @@ def _in_force(revision: LandedRevision, why: str) -> Counting:
         True,
         (
             Notice(
-                f"{DECLARATION_PATH} landed at {_short(revision.commit)}: "
-                f"in force, {why}"
+                f"{revision.path} landed at {_short(revision.commit)}: in force, {why}"
             ),
         ),
     )
 
 
-def _merge_refusal(merger: str, owners: Collection[str]) -> Notice | None:
+def _merge_refusal(merger: str, owners: Collection[str], path: str) -> Notice | None:
     """Why a merge does not count, or None when it does: its merger is a
-    user code owner of adherence.toml by the base's CODEOWNERS."""
+    user code owner of the declaration file by the base's CODEOWNERS."""
     if any(is_same_login(f"@{merger}", o) for o in owners):
         return None
     return Notice(
-        f"merge by {merger} not counted: not a code owner of {DECLARATION_PATH} "
+        f"merge by {merger} not counted: not a code owner of {path} "
         "by the base's CODEOWNERS"
     )
 
 
-def owner_notices(codeowners: CodeOwners) -> tuple[Notice, ...]:
-    """A notice per owner CODEOWNERS names for adherence.toml that is a team
-    or an email: it counts as no owner, since only a user is one. It is
-    about the file, so a walk says it once, not once per landing."""
-    owners = codeowners.owners_of(DECLARATION_PATH)
+def owner_notices(
+    codeowners: CodeOwners, path: str = DECLARATION_PATH
+) -> tuple[Notice, ...]:
+    """A notice per owner CODEOWNERS names for a declaration file that is a
+    team or an email: it counts as no owner, since only a user is one. It
+    is about the file, so a walk says it once, not once per landing."""
+    owners = codeowners.owners_of(path)
     return tuple(
         Notice(
-            f"CODEOWNERS entry {owner} for {DECLARATION_PATH} counts as no owner: "
+            f"CODEOWNERS entry {owner} for {path} counts as no owner: "
             "only a user (@login) is an owner, never a team or an email"
         )
         for owner in owners
@@ -1343,7 +1345,7 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
                 ),
             ),
         )
-    owners = codeowners.owners_of(DECLARATION_PATH)
+    owners = codeowners.owners_of(revision.path)
     users = tuple(o for o in owners if is_user_owner(o))
     refusals = [
         (
@@ -1356,7 +1358,9 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
     if counted is not None:
         return _in_force(revision, f"approved by {counted.reviewer}")
     merge = (
-        None if answer.merged_by is None else _merge_refusal(answer.merged_by, users)
+        None
+        if answer.merged_by is None
+        else _merge_refusal(answer.merged_by, users, revision.path)
     )
     if answer.merged_by is not None and merge is None:
         return _in_force(revision, f"merged by code owner {answer.merged_by}")

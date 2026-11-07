@@ -11,6 +11,7 @@ from dataclasses import replace
 
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
+    DECLARATION_PATH,
     Declaration,
     Landing,
     NoLandingPR,
@@ -424,7 +425,7 @@ class FakeReviews:
         self.asked: list[str] = []
 
     def approvals(
-        self, commit: str, deadline: Deadline | None
+        self, commit: str, deadline: Deadline | None, *, path: str = DECLARATION_PATH
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
         self.asked.append(commit)
         if deadline is not None and deadline.epoch_seconds <= self._now:

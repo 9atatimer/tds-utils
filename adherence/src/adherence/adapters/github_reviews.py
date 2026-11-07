@@ -275,7 +275,9 @@ class GitHubReviews:
                 return found
         raise _Failed(f"{path} has more than {MAX_PAGES} pages of {what}")
 
-    def _landing(self, commit: str, deadline: Deadline | None) -> Landing | NoLandingPR:
+    def _landing(
+        self, commit: str, deadline: Deadline | None, path: str
+    ) -> Landing | NoLandingPR:
         pulls = self._pages(
             f"commits/{commit}/pulls", "the pull requests of a commit", deadline
         )
@@ -293,20 +295,18 @@ class GitHubReviews:
         return Landing(
             author,
             approvals,
-            tuple((c, self._declaration_at(c, deadline)) for c in reviewed),
+            tuple((c, self._declaration_at(c, path, deadline)) for c in reviewed),
             merged_by,
         )
 
     def _declaration_at(
-        self, commit: str, deadline: Deadline | None
+        self, commit: str, path: str, deadline: Deadline | None
     ) -> DeclarationText:
-        """adherence.toml at a commit, from the contents API: None where the
+        """A declaration file at a commit, from the contents API: None where the
         commit is known and the file absent, unreadable on any other
         failure. A passed deadline still ends the whole answer."""
         try:
-            return self._fetch(
-                f"contents/{DECLARATION_PATH}?ref={commit}", RAW_MEDIA, deadline
-            )
+            return self._fetch(f"contents/{path}?ref={commit}", RAW_MEDIA, deadline)
         except _NotFound as missing:
             try:
                 self._get(f"commits/{commit}", deadline)
@@ -317,13 +317,13 @@ class GitHubReviews:
             return DeclarationUnreadable(str(failure))
 
     def approvals(
-        self, commit: str, deadline: Deadline | None
+        self, commit: str, deadline: Deadline | None, *, path: str = DECLARATION_PATH
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
         unready = self._unready(commit)
         if unready is not None:
             return ReviewsUnavailable(unready)
         try:
-            return self._landing(commit, deadline)
+            return self._landing(commit, deadline, path)
         except _Expired:
             return TimedOut(f"read the reviews of the landing of {commit[:12]}")
         except _Failed as failure:

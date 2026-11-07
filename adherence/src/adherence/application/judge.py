@@ -7,8 +7,8 @@ the head and the base, and compare the two reports in domain/verdict.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from collections.abc import Collection, Mapping
+from dataclasses import dataclass, field, replace
 
 from adherence.application.latch import (
     Latch,
@@ -21,7 +21,12 @@ from adherence.application.latch import (
     LatchedReviews,
     latched_analyzers,
 )
-from adherence.application.load import load_declaration
+from adherence.application.load import (
+    Loaded,
+    governed_by,
+    read_declarations,
+    read_file,
+)
 from adherence.application.measure import measure_reporting, noticed, reported
 from adherence.domain.checks.declared import (
     COVERED,
@@ -32,6 +37,7 @@ from adherence.domain.checks.declared import (
     record_kept,
     with_outcome,
 )
+from adherence.domain.checks.outcome import CheckOutcome
 from adherence.domain.coverage import Coverage
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
@@ -39,11 +45,14 @@ from adherence.domain.declaration import (
     DECLARATION_PATH,
     CodeOwners,
     Declaration,
+    DeclarationFile,
     DeclarationText,
     DeclarationUnreadable,
     LandedRevision,
     Landing,
+    RecordPaths,
     counted_landing,
+    directory_of,
     owner_notices,
     parse_codeowners,
     widened,
@@ -60,7 +69,7 @@ from adherence.domain.report import (
     fingerprint,
 )
 from adherence.domain.target import Base, Change, Head
-from adherence.domain.verdict import compared, stated_units
+from adherence.domain.verdict import UnitKey, compared, stated_units
 from adherence.ports.code_model import CodeModelPort
 from adherence.ports.complexity import ComplexityPort
 from adherence.ports.decision import DecisionPort
@@ -161,37 +170,33 @@ def _records_at(
 
 def _codeowners(
     base: Base, repository: RepositoryPort, deadline: Deadline | None
-) -> tuple[CodeOwners, tuple[Notice, ...]] | TimedOut:
+) -> CodeOwners | tuple[CodeOwners, Notice] | TimedOut:
     """The base's CODEOWNERS, from the first place GitHub looks that holds
-    one, with the notices it leaves the walk: its team and email entries,
-    each no owner. No entries when none holds one; no entries and a notice
-    naming the file and the reason when the first found is refused; the
-    TimedOut when a read of it times out, which ends the walk."""
+    one. No entries when none holds one; no entries and a notice naming
+    the file and the reason when the first found is refused; the TimedOut
+    when a read of it times out, which ends the walk."""
     for path in CODEOWNERS_PATHS:
         text = repository.read(path, base, deadline)
         if isinstance(text, TimedOut):
             return text
         if isinstance(text, Refused):
-            return CodeOwners(), (
-                Notice(
-                    f"{path} cannot be read: {text.reason}; it names no code "
-                    f"owner of {DECLARATION_PATH}"
-                ),
+            return CodeOwners(), Notice(
+                f"{path} cannot be read: {text.reason}; it names no code "
+                "owner of a declaration"
             )
         if isinstance(text, bytes):
-            owners = parse_codeowners(text)
-            return owners, owner_notices(owners)
-    return CodeOwners(), ()
+            return parse_codeowners(text)
+    return CodeOwners()
 
 
 def _text_at(
-    commit: str, repository: RepositoryPort, deadline: Deadline | None
+    commit: str, path: str, repository: RepositoryPort, deadline: Deadline | None
 ) -> DeclarationText | TimedOut:
-    """adherence.toml's bytes at a commit: None where it is absent; the
+    """A declaration file's bytes at a commit: None where it is absent; the
     TimedOut when the read times out, which ends the walk."""
     if not commit:
         return DeclarationUnreadable("no commit named")
-    text = repository.read(DECLARATION_PATH, Base(commit), deadline)
+    text = repository.read(path, Base(commit), deadline)
     if isinstance(text, Absent):
         return None
     if isinstance(text, Refused):
@@ -201,18 +206,19 @@ def _text_at(
 
 def _reviewed_text(
     commit: str,
+    path: str,
     hosted: Mapping[str, DeclarationText],
     repository: RepositoryPort,
     deadline: Deadline | None,
 ) -> DeclarationText | TimedOut:
-    """adherence.toml at a reviewed commit: as the code host gives it, which
-    reads a PR head no checkout can fetch; from the repository when the
-    code host gives none that reads; unreadable, with both reasons, when
-    neither does; the TimedOut when the repository's read times out."""
+    """A declaration file at a reviewed commit: as the code host gives it,
+    which reads a PR head no checkout can fetch; from the repository when
+    the code host gives none that reads; unreadable, with both reasons,
+    when neither does; the TimedOut when the repository's read times out."""
     given = hosted.get(commit, DeclarationUnreadable("the code host gave none"))
     if not isinstance(given, DeclarationUnreadable):
         return given
-    local = _text_at(commit, repository, deadline)
+    local = _text_at(commit, path, repository, deadline)
     if not isinstance(local, DeclarationUnreadable):
         return local
     return DeclarationUnreadable(
@@ -222,42 +228,148 @@ def _reviewed_text(
 
 def _landed(
     commit: str,
+    path: str,
     answer: Landing,
     repository: RepositoryPort,
     deadline: Deadline | None,
 ) -> LandedRevision | TimedOut:
     """A landing with the declaration's text at it and at each commit its
     approvals reviewed; the first TimedOut, with no read after it."""
-    text = _text_at(commit, repository, deadline)
+    text = _text_at(commit, path, repository, deadline)
     if isinstance(text, TimedOut):
         return text
     hosted = dict(answer.reviewed)
     reviewed: list[tuple[str, DeclarationText]] = []
     for c in sorted({a.commit for a in answer.approvals}):
-        found = _reviewed_text(c, hosted, repository, deadline)
+        found = _reviewed_text(c, path, hosted, repository, deadline)
         if isinstance(found, TimedOut):
             return found
         reviewed.append((c, found))
-    return LandedRevision(commit, answer, text=text, reviewed=tuple(reviewed))
+    return LandedRevision(
+        commit, answer, text=text, reviewed=tuple(reviewed), path=path
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class _InForce:
     """The declaration in force and what the walk to it leaves the report:
-    its notices, and coverage when no landing could be counted, so a
-    repository judged undeclared that way is inconclusive at best."""
+    its notices, and coverage for each file no landing of which could be
+    counted, so a repository judged undeclared that way is inconclusive at
+    best. `files` holds each file in force, as it reads, by path; `walked`
+    every file the base's history landed."""
 
     declaration: Declaration | DeclarationUnreadable
     notices: tuple[Notice, ...] = ()
     coverage: tuple[Coverage, ...] = ()
+    files: tuple[tuple[str, DeclarationFile], ...] = ()
+    walked: frozenset[str] = frozenset()
 
 
-def _undeclared(notices: list[Notice], reason: str) -> _InForce:
+def _undeclared_reason(path: str) -> str:
+    """Why a declaration file governs nothing: no landing of it counted."""
+    if path == DECLARATION_PATH:
+        return UNDECLARED
+    return (
+        f"no landing of {path} on the base's history carried a counted "
+        f"approval; its subtree {directory_of(path)}/ is judged undeclared"
+    )
+
+
+def _undeclared(notices: list[Notice], reason: str, path: str) -> _InForce:
     return _InForce(
         Declaration.none,
         (*notices, Notice(reason)),
-        (Coverage(reason, path=DECLARATION_PATH),),
+        (Coverage(reason, path=path),),
     )
+
+
+@dataclass(slots=True)
+class _Walk:
+    """One run's walk over the declaration files' landings: the ports, and
+    the base's CODEOWNERS once read, with the notices the walk has said."""
+
+    base: Base
+    repository: RepositoryPort
+    reviews: ReviewPort
+    deadline: Deadline | None
+    notices: list[Notice]
+    codeowners: CodeOwners | None = None
+    owned: set[str] = field(default_factory=set)
+
+    def owners(self, path: str) -> CodeOwners | TimedOut:
+        """The base's CODEOWNERS, read once; its team and email entries for
+        the file said once per file."""
+        if self.codeowners is None:
+            read = _codeowners(self.base, self.repository, self.deadline)
+            if isinstance(read, TimedOut):
+                return read
+            if isinstance(read, tuple):
+                read, said = read
+                self.notices.append(said)
+            self.codeowners = read
+        if path not in self.owned:
+            self.owned.add(path)
+            self.notices.extend(owner_notices(self.codeowners, path))
+        return self.codeowners
+
+    def in_force(self, path: str) -> str | None | TimedOut:
+        """The commit of the newest landing of the file that counts, None
+        when none does; the first TimedOut, which ends the walk."""
+        history = self.repository.history(path, self.base, self.deadline)
+        if isinstance(history, TimedOut):
+            return history
+        if isinstance(history, Refused):
+            self.notices.append(
+                Notice(f"the history of {path} cannot be read: {history.reason}")
+            )
+            return None
+        for commit in history:
+            answer = self.reviews.approvals(commit, self.deadline, path=path)
+            if isinstance(answer, TimedOut):
+                return answer
+            revision: LandedRevision | TimedOut = LandedRevision(
+                commit, answer, path=path
+            )
+            codeowners = CodeOwners()
+            if isinstance(answer, Landing):
+                owners = self.owners(path)
+                if isinstance(owners, TimedOut):
+                    return owners
+                codeowners = owners
+                revision = _landed(commit, path, answer, self.repository, self.deadline)
+            if isinstance(revision, TimedOut):
+                return revision
+            counting = counted_landing(revision, codeowners)
+            self.notices.extend(counting.notices)
+            if counting.in_force:
+                return commit
+        return None
+
+
+def _landed_declarations(
+    base: Base, repository: RepositoryPort, deadline: Deadline | None
+) -> list[str] | _InForce:
+    """Every declaration file at the base or ever landed on its history,
+    root first; the repository judged undeclared when they cannot be
+    listed."""
+    paths: set[str] = set()
+    for listed in (
+        repository.find(DECLARATION_PATH, base, deadline),
+        repository.touched(DECLARATION_PATH, base, deadline),
+    ):
+        if isinstance(listed, TimedOut):
+            return _undeclared(
+                [], f"{listed.operation}: timed out; {UNDECLARED}", DECLARATION_PATH
+            )
+        if isinstance(listed, Refused):
+            return _undeclared(
+                [],
+                f"the declarations cannot be listed: {listed.reason}; "
+                "the repository is judged undeclared",
+                DECLARATION_PATH,
+            )
+        paths.update(listed)
+    return sorted(paths, key=lambda p: (p.count("/"), p))
 
 
 def _declaration_in_force(
@@ -266,51 +378,207 @@ def _declaration_in_force(
     reviews: ReviewPort,
     deadline: Deadline | None,
 ) -> _InForce:
-    """The newest landing of adherence.toml on the base's history that
-    domain/declaration counts in force, and the walk's notices; the
-    repository judged undeclared, with coverage, when none is or the walk
-    cannot be made; a TimedOut from any port ends the walk there, with no
-    port call after it. A base with no landing of it at all is
-    undeclared."""
-    history = repository.history(DECLARATION_PATH, base, deadline)
-    if isinstance(history, Refused | TimedOut):
-        why = history.reason if isinstance(history, Refused) else "timed out"
-        return _undeclared(
-            [],
-            f"the history of {DECLARATION_PATH} cannot be read: {why}; "
-            "the repository is judged undeclared",
-        )
-    if not history:
-        return _InForce(Declaration.none)
-    notices: list[Notice] = []
-    codeowners: CodeOwners | None = None
-    for commit in history:
-        answer = reviews.approvals(commit, deadline)
-        if isinstance(answer, TimedOut):
-            return _undeclared(notices, f"{answer.operation}: timed out; {UNDECLARED}")
-        revision: LandedRevision | TimedOut = LandedRevision(commit, answer)
-        if isinstance(answer, Landing):
-            if codeowners is None:
-                read = _codeowners(base, repository, deadline)
-                if isinstance(read, TimedOut):
-                    return _undeclared(
-                        notices, f"{read.operation}: timed out; {UNDECLARED}"
-                    )
-                codeowners, said = read
-                notices.extend(said)
-            revision = _landed(commit, answer, repository, deadline)
-        if isinstance(revision, TimedOut):
+    """Each adherence.toml the base's history landed, settled in force on
+    its own: the newest landing domain/declaration counts, read at that
+    commit (a counted deletion governs nothing); a file with none governs
+    nothing and is a notice, with coverage. The files in force are read as
+    one over the base's tree. A TimedOut from any port ends the walk there,
+    with no port call after it, and the repository is judged undeclared."""
+    walk = _Walk(base, repository, reviews, deadline, [])
+    paths = _landed_declarations(base, repository, deadline)
+    if isinstance(paths, _InForce):
+        return paths
+    files: list[tuple[str, DeclarationFile]] = []
+    coverage: list[Coverage] = []
+    walked: set[str] = set()
+    for path in paths:
+        commit = walk.in_force(path)
+        if isinstance(commit, TimedOut):
             return _undeclared(
-                notices, f"{revision.operation}: timed out; {UNDECLARED}"
+                walk.notices,
+                f"{commit.operation}: timed out; {UNDECLARED}",
+                DECLARATION_PATH,
             )
-        counting = counted_landing(revision, codeowners or CodeOwners())
-        notices.extend(counting.notices)
-        if counting.in_force:
-            declaration = load_declaration(
-                Base(commit), repository=repository, deadline=deadline
+        walked.add(path)
+        if commit is None:
+            reason = _undeclared_reason(path)
+            walk.notices.append(Notice(reason))
+            coverage.append(Coverage(reason, path=path))
+            continue
+        read = read_file(path, Base(commit), repository=repository, deadline=deadline)
+        if isinstance(read, DeclarationUnreadable):
+            return _InForce(read, tuple(walk.notices), tuple(coverage))
+        if read is not None:
+            files.append((path, read))
+    declaration = governed_by(
+        [f for _, f in files], base, repository=repository, deadline=deadline
+    )
+    return _InForce(
+        declaration,
+        tuple(walk.notices),
+        tuple(coverage),
+        tuple(files),
+        frozenset(walked),
+    )
+
+
+def _proposed(
+    in_force: _InForce,
+    head: Loaded,
+    at: Head,
+    repository: RepositoryPort,
+    deadline: Deadline | None,
+) -> Declaration | DeclarationUnreadable:
+    """The head's own revisions of the files in force, read as one: the
+    only declaration a widening is taken from, since a file new at the head
+    governs from the next change."""
+    kept = {path for path, _ in in_force.files}
+    mine = [(path, read) for path, read in head.files if path in kept]
+    unreadable = next(
+        (r for _, r in mine if isinstance(r, DeclarationUnreadable)), None
+    )
+    if unreadable is not None:
+        return unreadable
+    return governed_by(
+        [r for _, r in mine if isinstance(r, DeclarationFile)],
+        at,
+        repository=repository,
+        deadline=deadline,
+    )
+
+
+def _file_notices(
+    in_force: _InForce,
+    head: Loaded,
+    paths: Collection[str],
+    created: Collection[str],
+) -> tuple[Notice, ...]:
+    """A notice per edit the change makes to a declaration file, each
+    naming the file: an edit to one in force, as edit_notices says it; a
+    file new at the head, which governs from the next change; a file in
+    force the head deletes; and the head's files read as one, when only
+    that cannot be read."""
+    before = dict(in_force.files)
+    after = dict(head.files)
+    notices: list[Notice] = []
+    for path in sorted({*before, *after}, key=lambda p: (p.count("/"), p)):
+        was, now = before.get(path), after.get(path)
+        if was is not None and now is not None:
+            proposed = (
+                now if isinstance(now, DeclarationUnreadable) else now.declaration
             )
-            return _InForce(declaration, tuple(notices))
-    return _undeclared(notices, UNDECLARED)
+            notices.extend(
+                Notice(f"{path}: {n.message}")
+                for n in edit_notices(
+                    in_force=was.declaration,
+                    proposed=proposed,
+                    paths=paths,
+                    created=created,
+                )
+            )
+        elif was is not None:
+            notices.append(
+                Notice(
+                    f"{path} deleted: not judged under for this change; it "
+                    "takes effect from the next change"
+                )
+            )
+        elif path not in in_force.walked and now is not None:
+            unread = (
+                f": it cannot be read: {now.reason}"
+                if isinstance(now, DeclarationUnreadable)
+                else ""
+            )
+            notices.append(
+                Notice(
+                    f"{path}: a new declaration governs from the next change{unread}"
+                )
+            )
+    every_file_reads = not any(
+        isinstance(r, DeclarationUnreadable) for _, r in head.files
+    )
+    if isinstance(head.declaration, DeclarationUnreadable) and every_file_reads:
+        notices.append(
+            Notice(
+                "the change's own declaration cannot be read: "
+                f"{head.declaration.reason}; it is judged under the declaration "
+                "in force"
+            )
+        )
+    return tuple(notices)
+
+
+def _undeclared_creations(
+    declaration: Declaration, created: Collection[str]
+) -> tuple[Notice, ...]:
+    """A notice per directory the change creates files in that no
+    declaration governs: the top of each new undeclared subtree."""
+    if not declaration.declared:
+        return ()
+    tops = sorted(
+        {
+            path.partition("/")[0] if "/" in path else "."
+            for path in created
+            if not declaration.governs(path)
+        }
+    )
+    return tuple(Notice(f"created under no declaration: {top}") for top in tops)
+
+
+def _scope_dirs(*declarations: Declaration) -> list[str]:
+    """Every directory a records scope begins at, the root's first."""
+    return sorted(
+        {
+            "",
+            *(d for declaration in declarations for d, _ in declaration.record_scopes),
+        },
+        key=lambda d: (d.count("/"), d),
+    )
+
+
+def _records_kept(
+    change: Change,
+    in_force: Declaration,
+    declaration: Declaration,
+    records: RecordsPort,
+    deadline: Deadline | None,
+    bound: int,
+) -> tuple[CheckOutcome, frozenset[UnitKey]]:
+    """Record kept over each records scope, base under the declaration in
+    force, head under the one the head is judged under, each pair read
+    once; and the record units the head's records state."""
+    pairs: dict[tuple[RecordPaths | None, RecordPaths | None], str] = {}
+    for directory in _scope_dirs(in_force, declaration):
+        probe = f"{directory}/x" if directory else "x"
+        pairs.setdefault(
+            (in_force.records_for(probe), declaration.records_for(probe)), directory
+        )
+    outcomes: list[CheckOutcome] = []
+    stated: set[UnitKey] = set()
+    single = len(pairs) == 1
+    for base_paths, head_paths in pairs:
+        head_records = _records_at(
+            change.head,
+            declaration if single else replace(declaration, records=head_paths),
+            records,
+            deadline,
+        )
+        base_records = _records_at(
+            change.base,
+            in_force if single else replace(in_force, records=base_paths),
+            records,
+            deadline,
+        )
+        outcomes.append(record_kept(base=base_records, head=head_records, bound=bound))
+        stated |= stated_units(head_records)
+    return (
+        CheckOutcome(
+            tuple(f for o in outcomes for f in o.findings),
+            tuple(c for o in outcomes for c in o.coverage),
+            any(o.ran for o in outcomes),
+        ),
+        frozenset(stated),
+    )
 
 
 def _not_run(change: Change, reason: str) -> Report:
@@ -401,7 +669,10 @@ def _judged(job: JudgeJob, finished: FinishedSink | None) -> Report:
             compared(base=Report(), head=head, change=change),
             repository=change.repository,
         )
-    proposed = load_declaration(change.head, repository=repository, deadline=deadline)
+    head_loaded = read_declarations(
+        change.head, repository=repository, deadline=deadline
+    )
+    proposed = _proposed(walked, head_loaded, change.head, repository, deadline)
     declaration = widened(in_force=in_force, proposed=proposed, created=change.created)
     head = measuring.measure(change.head, declaration, finished)
     if head.not_run_reason is not None:
@@ -409,11 +680,11 @@ def _judged(job: JudgeJob, finished: FinishedSink | None) -> Report:
             compared(base=Report(), head=head, change=change),
             repository=change.repository,
         )
-    edits = edit_notices(
-        in_force=in_force,
-        proposed=proposed,
-        paths={u.path for u in head.units},
-        created=change.created,
+    edits = (
+        *_file_notices(
+            walked, head_loaded, {u.path for u in head.units}, change.created
+        ),
+        *_undeclared_creations(declaration, change.created),
     )
     noticed(edits, finished)
     base = (
@@ -431,11 +702,13 @@ def _judged(job: JudgeJob, finished: FinishedSink | None) -> Report:
         parameters.limits.evidence_bound,
     )
     head = with_outcome(head, COVERED, found)
-    head_records = _records_at(change.head, declaration, records, deadline)
-    kept = record_kept(
-        base=_records_at(change.base, in_force, records, deadline),
-        head=head_records,
-        bound=parameters.limits.evidence_bound,
+    kept, stated = _records_kept(
+        change,
+        in_force,
+        declaration,
+        records,
+        deadline,
+        parameters.limits.evidence_bound,
     )
     head = with_outcome(head, RECORD_KEPT, kept)
     head = replace(
@@ -444,9 +717,7 @@ def _judged(job: JudgeJob, finished: FinishedSink | None) -> Report:
         coverage=(*head.coverage, *walked.coverage),
     )
     return replace(
-        compared(
-            base=base, head=head, change=change, stated=stated_units(head_records)
-        ),
+        compared(base=base, head=head, change=change, stated=stated),
         repository=change.repository,
     )
 

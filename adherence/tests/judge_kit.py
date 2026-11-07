@@ -117,9 +117,12 @@ def stubbed(
 
 
 def with_declaration(
-    files: Files, declaration: bytes = HEXAGON
+    files: Files, declaration: bytes | None = HEXAGON
 ) -> dict[str, bytes | Refused | TimedOut]:
-    """The files with the declaration added, unless they name their own."""
+    """The files with the declaration added at the root, unless they name
+    their own or the declaration is None."""
+    if declaration is None:
+        return dict(files)
     return {DECLARATION_PATH: declaration, **files}
 
 
@@ -138,21 +141,28 @@ def judge_with(
     landed: Mapping[str, Files] | None = None,
     reads: list[tuple[str, Base | Head]] | None = None,
     judge: DecisionPort | None = None,
+    root: bytes | None = HEXAGON,
+    histories: Mapping[str, tuple[str, ...] | Refused | TimedOut] | None = None,
 ) -> Report:
     """judge_change of HEAD against BASE, each holding its files and the
-    hexagon declaration unless the files carry their own. `history` lists
-    the commits that changed the declaration, newest first; `landed` holds
+    root declaration (the hexagon; None for none) unless the files carry
+    their own. `history` lists the commits that changed the root's
+    declaration, newest first, and `histories` those of any other file;
+    `landed` holds
     the files at commits other than the base and the head. `reads`, when
     given, is extended with every read the repository was asked for. The
     judge is the passing one unless the test binds another."""
     repository = FakeRepository(
         {
-            BASE: with_declaration(base),
-            HEAD: with_declaration(head),
+            BASE: with_declaration(base, root),
+            HEAD: with_declaration(head, root),
             **{Base(commit): files for commit, files in (landed or {}).items()},
         },
         unlisted_at=unlisted_at,
-        history={DECLARATION_PATH: history},
+        history={
+            **({DECLARATION_PATH: history} if root is not None else {}),
+            **(histories or {}),
+        },
     )
     report = judge_change(
         Change(REPOSITORY, BASE, HEAD),
