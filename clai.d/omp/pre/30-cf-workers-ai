@@ -15,9 +15,10 @@
 # writes nothing and says to seed.
 #
 # The routing: the base URL and gateway id name the account, so they live
-# only in this local file. The hook keeps them from the file it wrote
-# before, and reads 1Password only when there is none (a new machine) or
-# when CLAI_OMP_REFRESH=1: the one item tagged ROUTING_TAG, or the item
+# only on this machine: in models.yml and in ROUTING_STATE beside it, which
+# survives models.yml being deleted (seen on 2026-11-08). The hook keeps
+# them from either, and reads 1Password only when both are gone (a new
+# machine) or when CLAI_OMP_REFRESH=1: the one item tagged ROUTING_TAG, or the item
 # CLAI_OMP_CF_OP_ITEM names. This public repo names tags, never a vault or
 # an item.
 #
@@ -39,6 +40,7 @@ set -euo pipefail
 MODELS_YML="${HOME}/.omp/agent/models.yml"
 MARKER="# managed by tds-utils clai.d/omp/pre/30-cf-workers-ai"
 ROUTING_TAG="ai-gateway-routing"
+ROUTING_STATE="${HOME}/.omp/agent/.tds-cf-routing"
 KEY_SERVICE="tds.omp.cf-gateway-key"
 KEY_ACCOUNT="omp"
 
@@ -63,11 +65,16 @@ key_command() {
     fi
 }
 
-# Prints "<base_url> <gateway_id>" from the file this hook wrote before.
+# Prints "<base_url> <gateway_id>" from the file this hook wrote before,
+# or from ROUTING_STATE.
 routing_from_file() {
-    [[ -r "${MODELS_YML}" && "${CLAI_OMP_REFRESH:-0}" != "1" ]] || return 1
-    awk '$1 == "baseUrl:" { u = $2 } $1 == "cf-aig-gateway-id:" { g = $2 }
-         END { if (u != "" && g != "") print u, g; else exit 1 }' "${MODELS_YML}"
+    [[ "${CLAI_OMP_REFRESH:-0}" != "1" ]] || return 1
+    if [[ -r "${MODELS_YML}" ]] &&
+        awk '$1 == "baseUrl:" { u = $2 } $1 == "cf-aig-gateway-id:" { g = $2 }
+             END { if (u != "" && g != "") print u, g; else exit 1 }' "${MODELS_YML}"; then
+        return 0
+    fi
+    [[ -s "${ROUTING_STATE}" ]] && awk 'NF == 2 { print; f = 1 } END { exit !f }' "${ROUTING_STATE}"
 }
 
 # Prints the op:// item of the routing: CLAI_OMP_CF_OP_ITEM, or the one
@@ -135,6 +142,7 @@ write_models() {
     tmp="$(mktemp "${MODELS_YML}.XXXXXX")"
     # shellcheck disable=SC2086  # routing is two words, on purpose
     render ${routing} "${key}" > "${tmp}"
+    printf '%s\n' "${routing}" > "${ROUTING_STATE}"
     if [[ -e "${MODELS_YML}" ]] && cmp -s "${tmp}" "${MODELS_YML}"; then
         rm -f "${tmp}"
         return 0

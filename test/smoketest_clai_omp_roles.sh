@@ -44,9 +44,15 @@ make_fakes() {
     mkdir -p "${SCRATCH}/bin"
 
     # omp: `config get KEY --json` and `config set KEY VALUE` over a JSON
-    # file of flat keys; every set is logged.
+    # file of flat keys; every set is logged. `token github-copilot`
+    # succeeds only when FAKE_COPILOT=1 (a held login), printing a token.
     cat >"${SCRATCH}/bin/omp" <<'SH'
 #!/usr/bin/env bash
+if [[ $1 == token ]]; then
+    [[ $2 == github-copilot && ${FAKE_COPILOT:-0} == 1 ]] || exit 1
+    echo "ghu_faketoken"
+    exit 0
+fi
 [[ $1 == config ]] || exit 9
 cfg="${FAKE_DIR}/config.json"
 [[ -s $cfg ]] || echo '{}' >"$cfg"
@@ -94,7 +100,7 @@ reset_state() {
     mkdir -p "${FAKE_DIR}/models" "${HOME}"
     local name
     for name in "$@"; do : >"${FAKE_DIR}/models/${name}"; done
-    unset FAKE_CREATE_FAIL FAKE_DOWN CLAI_OMP_REFRESH
+    unset FAKE_CREATE_FAIL FAKE_DOWN FAKE_COPILOT CLAI_OMP_REFRESH CLAI_OMP_NO_COPILOT
 }
 
 run_hook() {
@@ -207,6 +213,49 @@ test_server_down_first_run_uses_kimi() {
     assert_eq "first run with the server down keeps smol on Kimi" "${KIMI}" "$(role smol)"
 }
 
+COPILOT="github-copilot/claude-sonnet-5.5"
+copilot_chain() { jq -c --arg k "${COPILOT}" '."retry.fallbackChains"[$k] // empty' "${FAKE_DIR}/config.json"; }
+
+test_copilot_login_takes_the_strong_roles() {
+    reset_state qwen3-coder:30b
+    export FAKE_COPILOT=1
+    run_hook || bad "hook exited non-zero"
+    local r
+    for r in default slow plan advisor; do assert_eq "with Copilot, role ${r}" "${COPILOT}" "$(role "${r}")"; done
+    assert_eq "with Copilot, smol stays local" "${LOCAL}" "$(role smol)"
+    assert_eq "Copilot falls back to Kimi, then local" "[\"${KIMI}\",\"${LOCAL}\"]" "$(copilot_chain)"
+    assert_eq "Kimi still falls back to local" "[\"${LOCAL}\"]" "$(chain)"
+    if grep -q ghu_faketoken "${FAKE_DIR}/stderr"; then bad "the Copilot token was printed"; else ok; fi
+}
+
+test_no_login_falls_back_to_kimi() {
+    reset_state qwen3-coder:30b
+    export FAKE_COPILOT=1
+    run_hook
+    export FAKE_COPILOT=0
+    run_hook
+    assert_eq "after logout, default is Kimi" "${KIMI}" "$(role default)"
+    assert_eq "after logout, the Copilot chain is dropped" "" "$(copilot_chain)"
+}
+
+test_hand_made_copilot_chain_survives_logout() {
+    reset_state qwen3-coder:30b
+    export FAKE_COPILOT=1
+    run_hook
+    PATH="${SCRATCH}/bin:${PATH}" omp config set retry.fallbackChains \
+        "$(jq -c --arg k "${COPILOT}" '."retry.fallbackChains" + {($k): ["other/model"]}' "${FAKE_DIR}/config.json")"
+    export FAKE_COPILOT=0
+    run_hook
+    assert_eq "a hand-made Copilot chain is kept" '["other/model"]' "$(copilot_chain)"
+}
+
+test_no_copilot_switch_keeps_kimi() {
+    reset_state qwen3-coder:30b
+    export FAKE_COPILOT=1 CLAI_OMP_NO_COPILOT=1
+    run_hook
+    assert_eq "CLAI_OMP_NO_COPILOT=1 keeps default on Kimi" "${KIMI}" "$(role default)"
+}
+
 test_no_omp_exits_zero() {
     reset_state qwen3-coder:30b
     PATH="/usr/bin:/bin" "${HOOK}" 2>/dev/null || bad "hook exited non-zero without omp"
@@ -229,6 +278,10 @@ main() {
     test_lost_model_drops_its_chain
     test_server_down_changes_nothing
     test_server_down_first_run_uses_kimi
+    test_copilot_login_takes_the_strong_roles
+    test_no_login_falls_back_to_kimi
+    test_hand_made_copilot_chain_survives_logout
+    test_no_copilot_switch_keeps_kimi
     test_no_omp_exits_zero
     echo "smoketest_clai_omp_roles: ${pass} passed, ${fail} failed"
     (( fail == 0 ))

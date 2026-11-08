@@ -4,17 +4,23 @@
 # omp picks a model by role, and its bundled agents name a role, not a
 # model: scout and sonic run on @smol, task on @task, reviewer on @slow.
 # This hook puts the roles that do bulk work on a local Ollama model and
-# keeps the roles that judge on Kimi (30-cf-workers-ai), so the gateway
-# bill pays only for the main loop, planning and review:
+# keeps the roles that judge on a strong model:
 #
-#   Kimi:  default slow plan advisor
-#   local: smol task commit tiny memory widget
+#   strong: default slow plan advisor
+#   local:  smol task commit tiny memory widget
 #
-# A Kimi usage limit falls back to the local model (retry.fallbackChains,
-# keyed on the Kimi model), so work does not stall. Only a usage limit:
+# The strong model is GitHub Copilot (CLAI_OMP_COPILOT_MODEL) when omp
+# holds a Copilot login -- `omp login github-copilot`, which the human runs;
+# `omp token github-copilot` succeeding is the test -- and Kimi on the AI
+# Gateway (30-cf-workers-ai, its key in the Keychain) when it does not.
+# The check runs at every launch, so logging in or out moves the roles at
+# the next one. CLAI_OMP_NO_COPILOT=1 keeps the strong roles on Kimi.
+#
+# Usage limits fall back down the chain (retry.fallbackChains, keyed on the
+# failing model): Copilot -> Kimi -> local. Only a usage limit:
 # retry.fallbackOn is usage-limit, so any other error -- a missing
-# credential above all -- is retried on Kimi and then shown, never hidden
-# behind the local model (Issue#755).
+# credential above all -- is retried on the same model and then shown,
+# never hidden behind a cheaper one (Issue#755).
 #
 # The local model is a variant of CLAI_OMP_LOCAL_BASE with num_ctx set
 # (CLAI_OMP_LOCAL_CTX): omp reads a model's context window from that
@@ -38,6 +44,7 @@
 set -euo pipefail
 
 KIMI="cf-workers-ai/@cf/moonshotai/kimi-k2.7-code"
+COPILOT="${CLAI_OMP_COPILOT_MODEL:-github-copilot/claude-sonnet-5.5}"
 LOCAL_BASE="${CLAI_OMP_LOCAL_BASE:-qwen3-coder:30b}"
 LOCAL_NAME="${CLAI_OMP_LOCAL_MODEL:-omp-coder}"
 LOCAL_CTX="${CLAI_OMP_LOCAL_CTX:-65536}"
@@ -56,6 +63,13 @@ model_ctx() {
 }
 
 # --- Action functions ---
+
+# True when omp holds a usable GitHub Copilot login. The token goes to
+# /dev/null: only the exit status is read.
+copilot_ready() {
+    [[ "${CLAI_OMP_NO_COPILOT:-0}" != "1" ]] || return 1
+    omp token github-copilot >/dev/null 2>&1
+}
 
 # Builds LOCAL_NAME from LOCAL_BASE unless it exists with LOCAL_CTX.
 # Returns 1 when no local model can be offered, 2 when the server does not
@@ -77,18 +91,21 @@ ensure_local_model() {
     log "built ${LOCAL_NAME} (${LOCAL_BASE}, num_ctx ${LOCAL_CTX})"
 }
 
-# The roles and chains this hook wants, as one JSON object.
+# The roles and chains this hook wants, as one JSON object. $1 is the
+# strong model, $2 the local one (empty when none).
 desired() {
-    local local_sel="$1" role roles="{}" chains="{}"
+    local strong="$1" local_sel="$2" role roles="{}"
     for role in "${STRONG_ROLES[@]}"; do
-        roles="$(jq -c --arg r "${role}" --arg m "${KIMI}" '.[$r] = $m' <<<"${roles}")"
+        roles="$(jq -c --arg r "${role}" --arg m "${strong}" '.[$r] = $m' <<<"${roles}")"
     done
     for role in "${LOCAL_ROLES[@]}"; do
         roles="$(jq -c --arg r "${role}" --arg m "${local_sel:-${KIMI}}" '.[$r] = $m' <<<"${roles}")"
     done
-    [[ -z "${local_sel}" ]] ||
-        chains="$(jq -nc --arg k "${KIMI}" --arg m "${local_sel}" '{($k): [$m]}')"
-    jq -nc --argjson r "${roles}" --argjson c "${chains}" '{roles: $r, chains: $c, fallbackOn: "usage-limit"}'
+    jq -nc --argjson r "${roles}" --arg s "${strong}" --arg k "${KIMI}" --arg l "${local_sel}" '
+        ([$l] | map(select(. != ""))) as $loc
+        | {roles: $r, fallbackOn: "usage-limit",
+           chains: ((if $s != $k then {($s): ([$k] + $loc)} else {} end)
+                    + (if ($loc | length) > 0 then {($k): $loc} else {} end))}'
 }
 
 # Applies jq filter $2 to the record setting $1; $3 is the filter's $add.
@@ -103,14 +120,15 @@ update_setting() {
 # The single-quoted '$add' strings are jq filters, not shell expansions.
 # shellcheck disable=SC2016
 apply_roles() {
-    local local_sel="" want rc=0
+    local local_sel="" strong="${KIMI}" want rc=0
+    copilot_ready && strong="${COPILOT}"
     ensure_local_model || rc=$?
     if (( rc == 2 )) && [[ -r "${STAMP}" ]]; then
         log "the Ollama server does not answer; roles left as they are"
         return 0
     fi
     (( rc == 0 )) && local_sel="ollama/${LOCAL_NAME}:latest"
-    want="$(desired "${local_sel}")" || return 1
+    want="$(desired "${strong}" "${local_sel}")" || return 1
     if [[ "${CLAI_OMP_REFRESH:-0}" != "1" && -r "${STAMP}" && "$(cat "${STAMP}")" == "${want}" ]]; then
         return 0
     fi
@@ -119,17 +137,20 @@ apply_roles() {
     # Without a default role, interactive omp opens its setup wizard.
     omp config set startup.setupWizard false >/dev/null || return 1
     update_setting modelRoles '. + $add' "$(jq -c .roles <<<"${want}")" || return 1
-    if [[ -n "${local_sel}" ]]; then
-        update_setting retry.fallbackChains '. + $add' "$(jq -c .chains <<<"${want}")" || return 1
-        omp config set retry.fallbackOn usage-limit >/dev/null || return 1
-    else
-        # Drop the chain to the local model only if it is still this hook's.
-        update_setting retry.fallbackChains \
-            'if .[$add.k] == [$add.m] then del(.[$add.k]) else . end' \
-            "$(jq -nc --arg k "${KIMI}" --arg m "ollama/${LOCAL_NAME}:latest" '{k: $k, m: $m}')" || return 1
-    fi
+    # Chains keyed on Kimi or Copilot are set as wanted; one this hook no
+    # longer wants is dropped only if it is still this hook's (every entry
+    # one of its own models), so a hand-made chain survives.
+    update_setting retry.fallbackChains \
+        'reduce $add.keys[] as $k (.;
+            if $add.set[$k] != null then .[$k] = $add.set[$k]
+            elif .[$k] != null and ((.[$k] - $add.ours) == []) then del(.[$k])
+            else . end)' \
+        "$(jq -nc --argjson c "$(jq -c .chains <<<"${want}")" \
+            --arg k "${KIMI}" --arg p "${COPILOT}" --arg l "ollama/${LOCAL_NAME}:latest" \
+            '{set: $c, keys: [$k, $p], ours: [$k, $p, $l]}')" || return 1
+    omp config set retry.fallbackOn usage-limit >/dev/null || return 1
     mkdir -p "$(dirname "${STAMP}")" && printf '%s\n' "${want}" > "${STAMP}" || return 1
-    log "roles: Kimi for ${STRONG_ROLES[*]}; ${local_sel:-Kimi} for ${LOCAL_ROLES[*]}"
+    log "roles: ${strong} for ${STRONG_ROLES[*]}; ${local_sel:-${KIMI}} for ${LOCAL_ROLES[*]}"
 }
 
 # --- Main ---

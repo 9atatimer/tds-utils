@@ -199,6 +199,17 @@ test_hand_managed_file_is_left_alone() {
     assert_eq "a file without the marker is left alone" "providers: {}  # mine" "$(yml)"
 }
 
+test_deleted_file_is_rebuilt_without_op() {
+    reset_state
+    seed_keychain
+    routing_in_op
+    run_hook
+    rm -f "${HOME}/.omp/agent/models.yml" "${FAKE_DIR}/op.log"
+    run_hook
+    assert_eq "a deleted models.yml is rebuilt" "https://gw.example/v1" "$(awk '$1 == "baseUrl:" {print $2}' <<<"$(yml)")"
+    assert_eq "rebuilding it calls op not at all" 0 "$(op_calls)"
+}
+
 test_refresh_rereads_routing() {
     reset_state
     old_owned_file
@@ -254,6 +265,7 @@ main() {
     test_key_ref_is_the_unseeded_fallback
     test_two_routing_items_write_nothing
     test_hand_managed_file_is_left_alone
+    test_deleted_file_is_rebuilt_without_op
     test_refresh_rereads_routing
     if command -v zsh >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
         test_seed_refuses_without_a_terminal
