@@ -232,6 +232,10 @@ jobs:
       - name: Smoketest bin/asbot
         run: /bin/bash test/smoketest_asbot.sh
 
+      # Hermetic: fake omp and ollama on PATH, a scratch HOME.
+      - name: Smoketest clai.d/omp/pre/40-model-roles
+        run: /bin/bash test/smoketest_clai_omp_roles.sh
+
   shellcheck:
     needs: changes
     if: needs.changes.outputs.shellcheck == 'true'
