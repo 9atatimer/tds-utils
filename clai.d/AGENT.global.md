@@ -398,6 +398,11 @@ every repo the fleet works in; the owner's approval is the review.
   under `op run` with `claude-as-bot --print-env`'s environment, and only
   after `gh api user` reports `9atatimer-bot`; a failed switch or any
   other login runs nothing. A commit outside it is authored as the owner.
+- When `asbot` refuses, the action does not happen: never run the same
+  command bare, as the owner, instead. Say what refused and stop; the fix
+  is the human's (unlock 1Password, or tag the token's item
+  `agents-gh-bot`). Sessions whose `asbot` refused committed and commented
+  as the owner that way on 2026-11-07 (tds-utils#752).
 - Never the inline `op run --env-file <(claude-as-bot --print-env) -- <cmd>`:
   it fails open. When `claude-as-bot` exits non-zero, the process
   substitution's status is lost and `op run` runs `<cmd>` as the owner;

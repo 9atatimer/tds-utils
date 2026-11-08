@@ -571,9 +571,10 @@ This repo lands PRs through the tedium merge bot; the rules are in
   The `CODEOWNERS` catch-all needs the owner's approval on every PR, and
   GitHub refuses self-approval, so a PR an agent opens as `9atatimer` can
   never be approved. Start laptop sessions with `bin/claude-as-bot`: the
-  bot's token from 1Password as `GH_TOKEN` (reference in
-  `TDS_BOT_GH_TOKEN_REF`), GitHub over HTTPS only, commits under the bot's
-  name. Cloud sessions get the same by connecting claude.ai's GitHub
+  bot's token from 1Password as `GH_TOKEN` (the item tagged
+  `agents-gh-bot`, or `TDS_BOT_GH_TOKEN_REF` when set), GitHub over HTTPS
+  only, commits under the bot's name. To run one command as the bot from
+  any session, use `bin/asbot <cmd>`. Cloud sessions get the same by connecting claude.ai's GitHub
   integration as the bot.
 - **`gate` is the only name to add to.** A new CI job goes into `gate`'s
   `needs`; a job outside it cannot block a landing. It also takes
