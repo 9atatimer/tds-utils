@@ -57,6 +57,7 @@ alias agy='clai agy'
 alias agy-yolo='clai agy --dangerously-skip-permissions'
 alias codex='clai codex'
 alias opencode='clai opencode'
+alias omp='clai omp'
 
 # monctl -- flip the Dell U2725QE between the home Mac (Thunderbolt) and the
 # work Mac (DisplayPort). `mc flip` is the everyday form.
