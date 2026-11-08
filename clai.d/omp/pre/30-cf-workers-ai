@@ -5,10 +5,14 @@
 # AI's OpenAI-compatible route through the personal AI Gateway (tds-internal
 # ops/terraform/ai-gateway, the bot consumer). The token is never written:
 # omp resolves `apiKey: "!op read ..."` itself at run time. The base URL and
-# gateway id are read from the same 1Password item, once, when the file is
-# written; they name the account, so they live only in this local file.
+# gateway id are read from the bot item, once, when the file is written;
+# they name the account, so they live only in this local file.
 #
-# The item reference comes from CLAI_OMP_CF_OP_ITEM (default below). The
+# omp's key is its own token (KEY_REF), not the bot item's, so the gateway
+# can tell omp's spend from other callers'. The human made it by hand.
+#
+# The bot item reference comes from CLAI_OMP_CF_OP_ITEM, the key from
+# CLAI_OMP_CF_KEY_REF (defaults below). The
 # hook owns models.yml only while it carries the MARKER line: a hand-written
 # file is left alone. CLAI_OMP_REFRESH=1 rewrites an owned file.
 #
@@ -19,6 +23,8 @@ set -euo pipefail
 MODELS_YML="${HOME}/.omp/agent/models.yml"
 MARKER="# managed by tds-utils clai.d/omp/pre/30-cf-workers-ai"
 OP_ITEM="${CLAI_OMP_CF_OP_ITEM:-op://Development - Bot/ai-gateway-personal-bot}"
+# "CF - personal - AI Gateway Token - OMP", an API Credential (field credential).
+KEY_REF="${CLAI_OMP_CF_KEY_REF:-op://Development - Bot/moj2rooy6mlohusov2r7zcmo7i/credential}"
 
 # --- Helpers ---
 
@@ -41,7 +47,7 @@ providers:
   cf-workers-ai:
     baseUrl: ${base_url}
     api: openai-completions
-    apiKey: "!op read '${OP_ITEM}/password'"
+    apiKey: "!op read '${KEY_REF}'"
     headers:
       cf-aig-gateway-id: ${gateway_id}
       cf-aig-metadata: '{"tool":"omp"}'
