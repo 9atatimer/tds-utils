@@ -236,6 +236,10 @@ jobs:
       - name: Smoketest clai.d/omp/pre/40-model-roles
         run: /bin/bash test/smoketest_clai_omp_roles.sh
 
+      # Hermetic: fake op and omp; the gateway hook is opt-in and calls no op by default.
+      - name: Smoketest clai.d/omp/pre/30-cf-workers-ai
+        run: /bin/bash test/smoketest_clai_omp_cf_gateway.sh
+
   shellcheck:
     needs: changes
     if: needs.changes.outputs.shellcheck == 'true'

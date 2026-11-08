@@ -1,100 +1,73 @@
 #!/usr/bin/env bash
-# 40-model-roles -- clai pre-hook for omp: route the bulk work to a local model.
+# 40-model-roles -- clai pre-hook for omp: every role on GitHub Copilot.
 #
 # omp picks a model by role, and its bundled agents name a role, not a
 # model: scout and sonic run on @smol, task on @task, reviewer on @slow.
-# This hook puts the roles that do bulk work on a local Ollama model and
-# keeps the roles that judge on Kimi (30-cf-workers-ai), so the gateway
-# bill pays only for the main loop, planning and review:
+# Every role runs on a GitHub Copilot model through the owner's own
+# `omp login github-copilot` (owner, 2026-11-08): no 1Password, no
+# Cloudflare gateway, no local inference.
 #
-#   Kimi:  default slow plan advisor
-#   local: smol task commit tiny memory widget
+#   strong (CLAI_OMP_STRONG_MODEL): default
+#   deep   (CLAI_OMP_DEEP_MODEL):   slow plan advisor
+#   bulk   (CLAI_OMP_BULK_MODEL):   smol task commit tiny memory widget
 #
-# A Kimi usage limit falls back to the local model (retry.fallbackChains,
-# keyed on the Kimi model), so work does not stall. Only a usage limit:
-# retry.fallbackOn is usage-limit, so any other error -- a missing
-# credential above all -- is retried on Kimi and then shown, never hidden
-# behind the local model (Issue#755).
+# Each default is a Copilot model that answers through omp; Copilot lists
+# some it refuses to omp's integration id (kimi-k2.7-code, gpt-5.5,
+# gpt-5.4-mini), so check `omp -p --model <m>` before changing one.
 #
-# The local model is a variant of CLAI_OMP_LOCAL_BASE with num_ctx set
-# (CLAI_OMP_LOCAL_CTX): omp reads a model's context window from that
-# Modelfile parameter, and Ollama's default is far below what omp's
-# prompts need. It is built in the Ollama that omp discovers (OLLAMA_HOST,
-# else 127.0.0.1:11434), the everyday instance, never the LMDE gateway.
-# The hook never pulls: when the base model is missing it says which
-# `ollama pull` to run and puts every role on Kimi until then, and drops
-# its fallback chain. When the Ollama server does not answer, it changes
-# nothing (or, on a first run, sets Kimi alone), so a server that is down
-# for one launch does not move the roles.
+# Local inference is off: omp's local providers (ollama, llama.cpp,
+# lm-studio, apple) go in disabledProviders, so omp does not discover them.
+# Every fallback chain that an earlier version of this hook wrote is
+# removed: one keyed on, or falling back to, the local model or a
+# Cloudflare gateway model (the provider 30-cf-workers-ai no longer writes
+# by default). Nothing falls back from Copilot to the gateway or to a
+# local model; a usage limit on Copilot is shown, not routed around.
 #
 # Ownership: the hook writes only when what it wants differs from what it
-# last wrote (STAMP). What it wants changes when this file changes or when
-# the local model appears or goes away; until then a role the human changes
-# by hand stays changed. It merges into modelRoles and fallbackChains;
-# other roles and chains are left alone. CLAI_OMP_REFRESH=1 reapplies.
+# last wrote (STAMP), so a role the human changes by hand stays changed
+# until this file changes. It merges into modelRoles, disabledProviders and
+# retry.fallbackChains; other entries are left alone. CLAI_OMP_REFRESH=1
+# reapplies.
 #
 # Fail-open: a non-zero pre-hook aborts the launch, so every path exits 0.
 
 set -euo pipefail
 
-KIMI="cf-workers-ai/@cf/moonshotai/kimi-k2.7-code"
-LOCAL_BASE="${CLAI_OMP_LOCAL_BASE:-qwen3-coder:30b}"
-LOCAL_NAME="${CLAI_OMP_LOCAL_MODEL:-omp-coder}"
-LOCAL_CTX="${CLAI_OMP_LOCAL_CTX:-65536}"
+STRONG="${CLAI_OMP_STRONG_MODEL:-github-copilot/claude-sonnet-5.5}"
+DEEP="${CLAI_OMP_DEEP_MODEL:-github-copilot/claude-opus-5.5}"
+BULK="${CLAI_OMP_BULK_MODEL:-github-copilot/claude-haiku-5.5}"
 STAMP="${HOME}/.omp/agent/.tds-model-roles"
-STRONG_ROLES=(default slow plan advisor)
-LOCAL_ROLES=(smol task commit tiny memory widget)
+DEEP_ROLES=(slow plan advisor)
+BULK_ROLES=(smol task commit tiny memory widget)
+LOCAL_PROVIDERS='["ollama","llama.cpp","lm-studio","apple"]'
+# What an earlier version of this hook chained to: the local model it
+# built, and any model on the Cloudflare gateway provider (30-cf-workers-ai).
+OLD_LOCAL="ollama/omp-coder:latest"
+OLD_GATEWAY_PREFIX="cf-workers-ai/"
 
 # --- Helpers ---
 
 log() { echo "[clai.d/omp/40-model-roles] $*" >&2; }
 
-# The num_ctx a model's Modelfile sets, empty when none or no such model.
-model_ctx() {
-    ollama show --parameters "$1" 2>/dev/null |
-        awk '$1 == "num_ctx" { print $2; exit }'
-}
-
 # --- Action functions ---
 
-# Builds LOCAL_NAME from LOCAL_BASE unless it exists with LOCAL_CTX.
-# Returns 1 when no local model can be offered, 2 when the server does not
-# answer (which says nothing about whether the model is there).
-ensure_local_model() {
-    command -v ollama >/dev/null 2>&1 || { log "ollama not on PATH; roles stay on Kimi"; return 1; }
-    ollama list >/dev/null 2>&1 || return 2
-    [[ "$(model_ctx "${LOCAL_NAME}")" == "${LOCAL_CTX}" ]] && return 0
-    ollama show "${LOCAL_BASE}" >/dev/null 2>&1 || {
-        log "${LOCAL_BASE} is not pulled; run: ollama pull ${LOCAL_BASE}"
-        return 1
-    }
-    local dir rc=0
-    dir="$(mktemp -d)"
-    printf 'FROM %s\nPARAMETER num_ctx %s\n' "${LOCAL_BASE}" "${LOCAL_CTX}" > "${dir}/Modelfile"
-    ollama create "${LOCAL_NAME}" -f "${dir}/Modelfile" >/dev/null 2>&1 || rc=$?
-    rm -rf "${dir}"
-    (( rc == 0 )) || { log "ollama create ${LOCAL_NAME} failed; roles stay on Kimi"; return 1; }
-    log "built ${LOCAL_NAME} (${LOCAL_BASE}, num_ctx ${LOCAL_CTX})"
-}
-
-# The roles and chains this hook wants, as one JSON object.
+# The roles this hook wants, plus the providers it disables, as one object.
 desired() {
-    local local_sel="$1" role roles="{}" chains="{}"
-    for role in "${STRONG_ROLES[@]}"; do
-        roles="$(jq -c --arg r "${role}" --arg m "${KIMI}" '.[$r] = $m' <<<"${roles}")"
+    local role roles
+    roles="$(jq -nc --arg m "${STRONG}" '{default: $m}')"
+    for role in "${DEEP_ROLES[@]}"; do
+        roles="$(jq -c --arg r "${role}" --arg m "${DEEP}" '.[$r] = $m' <<<"${roles}")"
     done
-    for role in "${LOCAL_ROLES[@]}"; do
-        roles="$(jq -c --arg r "${role}" --arg m "${local_sel:-${KIMI}}" '.[$r] = $m' <<<"${roles}")"
+    for role in "${BULK_ROLES[@]}"; do
+        roles="$(jq -c --arg r "${role}" --arg m "${BULK}" '.[$r] = $m' <<<"${roles}")"
     done
-    [[ -z "${local_sel}" ]] ||
-        chains="$(jq -nc --arg k "${KIMI}" --arg m "${local_sel}" '{($k): [$m]}')"
-    jq -nc --argjson r "${roles}" --argjson c "${chains}" '{roles: $r, chains: $c, fallbackOn: "usage-limit"}'
+    jq -nc --argjson r "${roles}" --argjson p "${LOCAL_PROVIDERS}" '{roles: $r, disabled: $p}'
 }
 
-# Applies jq filter $2 to the record setting $1; $3 is the filter's $add.
+# Applies jq filter $3 to setting $1 (absent: the JSON $2); $4 is $add.
 update_setting() {
-    local key="$1" filter="$2" add="$3" cur
-    cur="$(omp config get "${key}" --json | jq -c '.value // {}')" || return 1
+    local key="$1" empty="$2" filter="$3" add="$4" cur
+    cur="$(omp config get "${key}" --json | jq -c --argjson e "${empty}" '.value // $e')" || return 1
     omp config set "${key}" "$(jq -c --argjson add "${add}" "${filter}" <<<"${cur}")" >/dev/null || return 1
 }
 
@@ -103,14 +76,8 @@ update_setting() {
 # The single-quoted '$add' strings are jq filters, not shell expansions.
 # shellcheck disable=SC2016
 apply_roles() {
-    local local_sel="" want rc=0
-    ensure_local_model || rc=$?
-    if (( rc == 2 )) && [[ -r "${STAMP}" ]]; then
-        log "the Ollama server does not answer; roles left as they are"
-        return 0
-    fi
-    (( rc == 0 )) && local_sel="ollama/${LOCAL_NAME}:latest"
-    want="$(desired "${local_sel}")" || return 1
+    local want
+    want="$(desired)" || return 1
     if [[ "${CLAI_OMP_REFRESH:-0}" != "1" && -r "${STAMP}" && "$(cat "${STAMP}")" == "${want}" ]]; then
         return 0
     fi
@@ -118,18 +85,13 @@ apply_roles() {
     # returns on failure itself: the stamp is written only after all landed.
     # Without a default role, interactive omp opens its setup wizard.
     omp config set startup.setupWizard false >/dev/null || return 1
-    update_setting modelRoles '. + $add' "$(jq -c .roles <<<"${want}")" || return 1
-    if [[ -n "${local_sel}" ]]; then
-        update_setting retry.fallbackChains '. + $add' "$(jq -c .chains <<<"${want}")" || return 1
-        omp config set retry.fallbackOn usage-limit >/dev/null || return 1
-    else
-        # Drop the chain to the local model only if it is still this hook's.
-        update_setting retry.fallbackChains \
-            'if .[$add.k] == [$add.m] then del(.[$add.k]) else . end' \
-            "$(jq -nc --arg k "${KIMI}" --arg m "ollama/${LOCAL_NAME}:latest" '{k: $k, m: $m}')" || return 1
-    fi
+    update_setting modelRoles '{}' '. + $add' "$(jq -c .roles <<<"${want}")" || return 1
+    update_setting disabledProviders '[]' '. + ($add - .)' "${LOCAL_PROVIDERS}" || return 1
+    update_setting retry.fallbackChains '{}' \
+        'with_entries(select(((.key | startswith($add.gw)) or (.value | any(. == $add.local or startswith($add.gw)))) | not))' \
+        "$(jq -nc --arg l "${OLD_LOCAL}" --arg g "${OLD_GATEWAY_PREFIX}" '{local: $l, gw: $g}')" || return 1
     mkdir -p "$(dirname "${STAMP}")" && printf '%s\n' "${want}" > "${STAMP}" || return 1
-    log "roles: Kimi for ${STRONG_ROLES[*]}; ${local_sel:-Kimi} for ${LOCAL_ROLES[*]}"
+    log "roles on Copilot: ${STRONG} (default), ${DEEP} (${DEEP_ROLES[*]}), ${BULK} (${BULK_ROLES[*]}); local providers off"
 }
 
 # --- Main ---
