@@ -197,12 +197,15 @@ if [[ -f "$HOME/.tds-local/zshrc" ]]; then
     source "$HOME/.tds-local/zshrc"
 fi
 
-# --- Main (must stay last: exec replaces this shell) ---
+# --- Main (must stay last: it blocks until tmux returns) ---
 
 # log-hoarder: put each new terminal window in the one shared tmux session,
 # as a new window (bin/tmux-launch). Without it on PATH -- a machine that has
 # not been released yet -- fall back to a session per terminal.
-# NOTHING BELOW THIS BLOCK RUNS in a normal terminal. tmux's shell is login
+# Run, not exec'd: detaching ends the tmux client, and with exec the client
+# was the window's only process, so a detach closed the terminal ("[Process
+# completed]"). This shell waits under it and takes input again on a detach.
+# Nothing below this block runs until then. tmux's shell is login
 # AND interactive, so .zshenv -> path_helper -> .zprofile -> .zshrc all run a
 # second time; that is why tds_path_apply has to be idempotent.
 # Only a shell on a terminal, with no -c command, hands off. A GUI app
@@ -220,7 +223,8 @@ if [[ -o interactive ]] && [[ -z "$TMUX" ]] && [[ -t 0 && -t 1 ]] \
     && [[ "${TERM_PROGRAM:-}" != claude-desktop ]] \
     && [[ -z "${CLAUDE_AGENT_SDK_VERSION:-}" ]]; then
     if (( $+commands[tmux-launch] )); then
-        exec tmux-launch
+        tmux-launch
+    else
+        tmux new-session
     fi
-    exec tmux new-session
 fi

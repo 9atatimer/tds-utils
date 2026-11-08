@@ -9,7 +9,7 @@
 # it instead of creating another session, and a new window starts in the
 # directory the terminal was opened in; with no terminal, tmux-launch opens
 # no window.  Also the dot.zshrc wiring: a terminal's shell outside tmux hands
-# off to tmux-launch, and a shell with no terminal or a -c command does not
+# off to tmux-launch and takes input again when it returns (a detach), and a shell with no terminal or a -c command does not
 # (issue #427 -- GUI environment probes left stray windows), nor does a
 # shell the Claude desktop app opens -- a Terminal-panel tab or its bash mode
 # (issue #498).  Requires script(1) for the pty cases.
@@ -145,7 +145,7 @@ test_new_window_starts_in_the_terminals_directory() {
 # every emulator does, so the accept case does too: a guard that refused any
 # TERM_PROGRAM would otherwise pass (issue #498).
 test_zshrc_hands_off_to_tmux_launch() {
-    bold "\nTest: dot.zshrc execs tmux-launch for a terminal's shell outside tmux\n"
+    bold "\nTest: dot.zshrc runs tmux-launch for a terminal's shell outside tmux\n"
 
     local dirs
     dirs=(${(z)"$(stage_zshrc)"})
@@ -154,6 +154,28 @@ test_zshrc_hands_off_to_tmux_launch() {
         PATH="${dirs[2]}:/usr/bin:/bin" /bin/zsh -i </dev/null >/dev/null 2>&1 || true
 
     assert_eq "tmux-launch ran" launched "$(launched)"
+}
+
+# Detaching ends the tmux client. With the hand-off exec'd, the client was the
+# window's only process, so a detach closed the terminal ("[Process
+# completed]"). The terminal's own shell must outlive tmux-launch and take
+# input again once it returns. A login shell sources .zlogin after .zshrc, so
+# a staged .zlogin runs only if the shell outlived the hand-off -- no typed
+# input, which zle would flush as typeahead before the first prompt.
+test_zshrc_shell_survives_tmux_launch_returning() {
+    bold "\nTest: the terminal's shell takes input again after tmux-launch returns\n"
+
+    local dirs
+    dirs=(${(z)"$(stage_zshrc)"})
+    rm -f "${SCRATCH}/survived"
+    print -r -- "print survived > '${SCRATCH}/survived'; exit" > "${dirs[1]}/.zlogin"
+    in_pty env -i HOME="${SCRATCH}" ZDOTDIR="${dirs[1]}" TERM=dumb \
+        TERM_PROGRAM=Apple_Terminal \
+        PATH="${dirs[2]}:/usr/bin:/bin" /bin/zsh -il </dev/null >/dev/null 2>&1 || true
+
+    assert_eq "tmux-launch ran" launched "$(launched)"
+    assert_eq "the shell ran its next command" survived \
+        "$(cat "${SCRATCH}/survived" 2>/dev/null || print -r -- gone)"
 }
 
 # Issue #427. A GUI app (Claude desktop, an editor) reads the user's
@@ -261,6 +283,7 @@ main() {
     test_launch_on_terminal_adds_a_window_and_attaches
     test_launch_without_terminal_adds_no_window
     test_zshrc_hands_off_to_tmux_launch
+    test_zshrc_shell_survives_tmux_launch_returning
     test_zshrc_env_probe_without_terminal_stays_out_of_tmux
     test_zshrc_command_shell_on_terminal_stays_out_of_tmux
     test_zshrc_claude_desktop_terminal_stays_out_of_tmux
