@@ -595,8 +595,9 @@ This repo lands PRs through the tedium merge bot; the rules are in
   but the issue stays open: observed on PRs #356 and #357, 2026-09-29.
   After tedium merges, close the issue by hand with a comment naming the
   PR.
-- Merging to `master` deploys nothing here -- `bin/tds-release` is the
-  human step -- which is why this repo is first in the go-live rollout.
+- Merging to `master` deploys nothing here -- `bin/tds-release` is a
+  separate step, run by the owner or by an agent the owner tells to run it
+  in the session -- which is why this repo is first in the go-live rollout.
 
 ## Pull Request Review (do this WITHOUT being told)
 
