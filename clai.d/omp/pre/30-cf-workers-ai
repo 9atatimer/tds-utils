@@ -23,6 +23,13 @@
 #
 # The model roles, Kimi's included, are 40-model-roles'.
 #
+# OPT-IN (owner, 2026-11-08): omp's default is Kimi on the owner's GitHub
+# Copilot login (40-model-roles), which needs no 1Password. Without
+# CLAI_OMP_CF_GATEWAY=1 this hook calls no `op`, writes nothing, and removes
+# the models.yml it wrote earlier (marker-owned only), so no provider asks
+# 1Password for a key at launch. Opting in also wants
+# CLAI_OMP_STRONG_MODEL=cf-workers-ai/@cf/moonshotai/kimi-k2.7-code.
+#
 # Fail-open: a non-zero pre-hook aborts the launch, so every path exits 0.
 
 set -euo pipefail
@@ -84,6 +91,12 @@ write_models() {
 # --- Main ---
 
 main() {
+    if [[ "${CLAI_OMP_CF_GATEWAY:-0}" != "1" ]]; then
+        if [[ -e "${MODELS_YML}" ]] && grep -qxF "${MARKER}" "${MODELS_YML}"; then
+            rm -f "${MODELS_YML}" && log "gateway not opted in; removed ${MODELS_YML}"
+        fi
+        exit 0
+    fi
     command -v op >/dev/null 2>&1 || { log "op not on PATH; skipping"; exit 0; }
     owned_or_absent || { log "${MODELS_YML} is hand-managed; leaving it"; exit 0; }
     needs_write || exit 0
