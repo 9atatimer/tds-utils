@@ -11,12 +11,16 @@
 # removed on exit; the token never does. The owner's own shell and gh login
 # are untouched.
 #
-# The token's 1Password reference comes from TDS_BOT_GH_TOKEN_REF (an
-# op:// reference, set privately; this public repo does not name it).
+# The token's 1Password reference is TDS_BOT_GH_TOKEN_REF when that is set
+# (an op:// reference). Otherwise it is found by tag: the one item tagged
+# BOT_TAG in the vaults `op` can read gives op://<vault id>/<item id>/credential.
+# No tagged item, several, or a failed `op` (locked, say) refuses: this
+# public repo names the tag, never a vault or an item (Issue#752).
 #
 # Usage: claude-as-bot [--print-env] [claude args...]
 #   --print-env  print the session's environment (the reference, never the
-#                token) and exit, without 1Password or claude
+#                token) and exit, without claude. It reads 1Password only
+#                to find the reference by tag.
 
 set -euo pipefail
 
@@ -24,6 +28,7 @@ set -euo pipefail
 
 BOT_LOGIN="9atatimer-bot"
 BOT_EMAIL="341954893+9atatimer-bot@users.noreply.github.com"
+BOT_TAG="agents-gh-bot"
 
 # The session's env file; global so the EXIT trap can still see it after
 # launch() returns.
@@ -50,6 +55,18 @@ session_env() {
         "GIT_CONFIG_VALUE_0=git@github.com:" \
         "GIT_CONFIG_KEY_1=url.https://github.com/.insteadOf" \
         "GIT_CONFIG_VALUE_1=ssh://git@github.com/"
+}
+
+# Prints the reference of the one item tagged BOT_TAG; fails otherwise.
+reference_by_tag() {
+    local items count
+    items=$(op item list --tags "${BOT_TAG}" --format json) || return 1
+    count=$(jq 'length' <<<"${items}") || return 1
+    if [[ ${count} != 1 ]]; then
+        echo "claude-as-bot: ${count} 1Password items carry the tag ${BOT_TAG}; want exactly 1" >&2
+        return 1
+    fi
+    jq -r '.[0] | "op://\(.vault.id)/\(.id)/credential"' <<<"${items}"
 }
 
 valid_reference() {
@@ -108,8 +125,10 @@ main() {
 
     local ref=${TDS_BOT_GH_TOKEN_REF:-}
     if [[ -z $ref ]]; then
-        echo "claude-as-bot: TDS_BOT_GH_TOKEN_REF is not set (the bot token's op:// reference)" >&2
-        exit 2
+        ref=$(reference_by_tag) || {
+            echo "claude-as-bot: no bot token reference: set TDS_BOT_GH_TOKEN_REF, or tag the token's 1Password item ${BOT_TAG}" >&2
+            exit 2
+        }
     fi
     if ! valid_reference "$ref"; then
         echo "claude-as-bot: TDS_BOT_GH_TOKEN_REF must be an op:// reference, never a token" >&2

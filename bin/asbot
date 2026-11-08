@@ -10,8 +10,8 @@
 # `op run --env-file <(claude-as-bot --print-env) -- cmd`, a failing
 # claude-as-bot leaves an empty env file and op runs cmd as the owner
 # (tds-utils#717). Here the env is captured first and its failure stops
-# everything. Holds no credential: the reference comes from
-# TDS_BOT_GH_TOKEN_REF via claude-as-bot.
+# everything. Holds no credential: claude-as-bot finds the reference
+# (TDS_BOT_GH_TOKEN_REF, else the 1Password item tagged agents-gh-bot).
 #
 # Run it in the foreground: op's 1Password prompt goes unseen in a
 # background job and times out.

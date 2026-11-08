@@ -6,7 +6,9 @@
 # Hermetic: --print-env shows the environment the session would get, with
 # the token's reference and never its value; the launch cases put a fake
 # `op` (resolves the reference to a fake token, then runs its command) and a
-# recording `clai`/`claude` first on PATH, so no 1Password and no network.
+# recording `clai`/`claude` first on PATH, and the lookup cases a fake `op`
+# that answers `op item list --tags` from a fixture, so no 1Password and no
+# network.
 #
 # Usage: ./test/smoketest_claude_as_bot.sh
 
@@ -56,12 +58,74 @@ test_the_session_env_is_the_bot() {
     check "two rewrite entries" "$out" 'GIT_CONFIG_COUNT=2'
 }
 
-test_no_reference_is_refused() {
+# --- Lookup cases: no TDS_BOT_GH_TOKEN_REF, the item found by its tag ---
+
+# A fake `op` for `op item list --tags <tag> --format json`: logs the tag
+# and prints FAKE_ITEMS, or fails when FAKE_OP_FAIL is set.
+write_lookup_op() {
+    local dir=$1
+    cat >"${dir}/op" <<'STUB'
+#!/usr/bin/env bash
+[ "$1 $2 $3" = "item list --tags" ] && [ "$5 $6" = "--format json" ] || { echo "fake op: bad args: $*" >&2; exit 90; }
+echo "$4" >>"${FAKE_LOG}/tags"
+[ -z "${FAKE_OP_FAIL:-}" ] || { echo "[ERROR] authorization timeout" >&2; exit 1; }
+printf '%s\n' "${FAKE_ITEMS}"
+STUB
+    chmod +x "${dir}/op"
+}
+
+# Runs `--print-env` with no reference set; output to $log/out and
+# $log/stderr, exit code printed.
+lookup_run() {
+    local label=$1 items=$2
+    local bin="${SCRATCH}/${label}/bin" log="${SCRATCH}/${label}/log"
+    mkdir -p "${bin}" "${log}"
+    write_lookup_op "${bin}"
     local rc=0
-    TDS_BOT_GH_TOKEN_REF='' "$LAUNCHER" --print-env >/dev/null 2>&1 || rc=$?
-    if [ "$rc" -ne 0 ]; then pass=$((pass + 1)); else
-        fail=$((fail + 1)); echo "FAIL: an unset reference must refuse" >&2
-    fi
+    PATH="${bin}:/usr/bin:/bin" FAKE_LOG="${log}" FAKE_ITEMS="${items}" \
+        TDS_BOT_GH_TOKEN_REF='' "$LAUNCHER" --print-env \
+        >"${log}/out" 2>"${log}/stderr" || rc=$?
+    echo "${rc}"
+}
+
+test_the_tag_finds_the_reference() {
+    local log="${SCRATCH}/tag-one/log" rc
+    rc=$(lookup_run tag-one '[{"id":"item1","vault":{"id":"vault1"}}]')
+    expect_eq "one tagged item: exits 0" 0 "${rc}"
+    check "one tagged item: its reference is the token" "$(cat "${log}/out")" 'GH_TOKEN=op://vault1/item1/credential'
+    expect_eq "one tagged item: looked up by the agents-gh-bot tag" agents-gh-bot "$(cat "${log}/tags" 2>/dev/null)"
+}
+
+test_no_tagged_item_is_refused() {
+    local log="${SCRATCH}/tag-none/log" rc
+    rc=$(lookup_run tag-none '[]')
+    expect_eq "no tagged item: refuses" 2 "${rc}"
+    check "no tagged item: names the tag" "$(cat "${log}/stderr")" 'agents-gh-bot'
+    refuse "no tagged item: prints no env" "$(cat "${log}/out")" 'GH_TOKEN'
+}
+
+test_two_tagged_items_are_refused() {
+    local log="${SCRATCH}/tag-two/log" rc
+    rc=$(lookup_run tag-two '[{"id":"a","vault":{"id":"v"}},{"id":"b","vault":{"id":"v"}}]')
+    expect_eq "two tagged items: refuses" 2 "${rc}"
+    refuse "two tagged items: prints no env" "$(cat "${log}/out")" 'GH_TOKEN'
+}
+
+test_a_failed_lookup_is_refused() {
+    local log="${SCRATCH}/tag-fail/log" rc
+    rc=$(FAKE_OP_FAIL=1 lookup_run tag-fail '[{"id":"item1","vault":{"id":"vault1"}}]')
+    expect_eq "op fails: refuses" 2 "${rc}"
+    refuse "op fails: prints no env" "$(cat "${log}/out")" 'GH_TOKEN'
+}
+
+test_the_variable_wins_over_the_tag() {
+    local bin="${SCRATCH}/tag-var/bin" log="${SCRATCH}/tag-var/log" out
+    mkdir -p "${bin}" "${log}"
+    write_lookup_op "${bin}"
+    out=$(PATH="${bin}:/usr/bin:/bin" FAKE_LOG="${log}" FAKE_ITEMS='[]' \
+        TDS_BOT_GH_TOKEN_REF='op://set/by/hand' "$LAUNCHER" --print-env)
+    check "a set reference is used" "$out" 'GH_TOKEN=op://set/by/hand'
+    expect_eq "a set reference skips the lookup" "" "$(cat "${log}/tags" 2>/dev/null)"
 }
 
 test_a_literal_token_is_refused() {
@@ -189,7 +253,11 @@ trap cleanup EXIT INT TERM HUP
 SCRATCH=$(mktemp -d)
 
 test_the_session_env_is_the_bot
-test_no_reference_is_refused
+test_the_tag_finds_the_reference
+test_no_tagged_item_is_refused
+test_two_tagged_items_are_refused
+test_a_failed_lookup_is_refused
+test_the_variable_wins_over_the_tag
 test_a_literal_token_is_refused
 test_launch_runs_clai_and_cleans_up
 test_launch_falls_back_to_claude
