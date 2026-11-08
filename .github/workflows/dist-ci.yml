@@ -228,6 +228,10 @@ jobs:
       - name: Smoketest bin/claude-as-bot
         run: /bin/bash test/smoketest_claude_as_bot.sh
 
+      # Hermetic: fake claude-as-bot, op and gh on PATH.
+      - name: Smoketest bin/asbot
+        run: /bin/bash test/smoketest_asbot.sh
+
   shellcheck:
     needs: changes
     if: needs.changes.outputs.shellcheck == 'true'
