@@ -3,25 +3,34 @@
 #
 # Writes the `cf-workers-ai` provider into ~/.omp/agent/models.yml: Workers
 # AI's OpenAI-compatible route through the personal AI Gateway (tds-internal
-# ops/terraform/ai-gateway, the bot consumer). The token is never written:
-# omp resolves `apiKey: "!op read ..."` itself at run time. The base URL and
-# gateway id are read from the bot item, once, when the file is written;
-# they name the account, so they live only in this local file.
+# ops/terraform/ai-gateway). The token is never written to the file.
 #
-# omp's key is its own token (KEY_REF), not the bot item's, so the gateway
-# can tell omp's spend from other callers'. The human made it by hand.
+# The key: omp runs the file's `apiKey: "!<command>"` itself, once per
+# process, and again 30 s after any failure. With `!op read` that was a
+# 1Password prompt per launch, and a prompt left past omp's 10 s limit came
+# back every 30 s. So the key lives in the login Keychain, seeded once by
+# a human with clai.d/omp/seed-gateway-key.zsh, and the file reads it with
+# `security`, which needs no prompt. Until it is seeded, CLAI_OMP_CF_KEY_REF
+# (an op:// reference) gives the old `!op read`; with neither, the hook
+# writes nothing and says to seed.
 #
-# The bot item reference comes from CLAI_OMP_CF_OP_ITEM, the key from
-# CLAI_OMP_CF_KEY_REF (defaults below). The
-# hook owns models.yml only while it carries the MARKER line: a hand-written
-# file is left alone. CLAI_OMP_REFRESH=1 rewrites an owned file.
+# The routing: the base URL and gateway id name the account, so they live
+# only in this local file. The hook keeps them from the file it wrote
+# before, and reads 1Password only when there is none (a new machine) or
+# when CLAI_OMP_REFRESH=1: the one item tagged ROUTING_TAG, or the item
+# CLAI_OMP_CF_OP_ITEM names. This public repo names tags, never a vault or
+# an item.
 #
-# omp gives a `!command` key 10 s, then reports "No API key found for
-# cf-workers-ai". `op read` waits on the 1Password authorization prompt,
-# which a fresh terminal shows on first use; a prompt left past 10 s fails
-# the launch that way (2026-11-07). Approve the prompt and relaunch.
+# omp's key is its own token, not the routing item's, so the gateway can
+# tell omp's spend from other callers'.
 #
-# The model roles, Kimi's included, are 40-model-roles'.
+# The hook owns models.yml only while it carries the MARKER line: a
+# hand-written file is left alone. It rewrites an owned file whenever what
+# it would write differs, so seeding the Keychain takes effect at the next
+# launch. The model roles, Kimi's included, are 40-model-roles'.
+#
+# Environment (tests only): CLAI_OMP_KEYCHAIN, a keychain file to search
+# instead of the default keychains.
 #
 # Fail-open: a non-zero pre-hook aborts the launch, so every path exits 0.
 
@@ -29,9 +38,9 @@ set -euo pipefail
 
 MODELS_YML="${HOME}/.omp/agent/models.yml"
 MARKER="# managed by tds-utils clai.d/omp/pre/30-cf-workers-ai"
-OP_ITEM="${CLAI_OMP_CF_OP_ITEM:-op://Development - Bot/ai-gateway-personal-bot}"
-# "CF - personal - AI Gateway Token - OMP", an API Credential (field credential).
-KEY_REF="${CLAI_OMP_CF_KEY_REF:-op://Development - Bot/moj2rooy6mlohusov2r7zcmo7i/credential}"
+ROUTING_TAG="ai-gateway-routing"
+KEY_SERVICE="tds.omp.cf-gateway-key"
+KEY_ACCOUNT="omp"
 
 # --- Helpers ---
 
@@ -41,12 +50,53 @@ owned_or_absent() {
     [[ ! -e "${MODELS_YML}" ]] || grep -qxF "${MARKER}" "${MODELS_YML}"
 }
 
-needs_write() {
-    [[ ! -e "${MODELS_YML}" || "${CLAI_OMP_REFRESH:-0}" == "1" ]]
+# Prints the omp `!command` that yields the key, or nothing.
+key_command() {
+    local -a kc=()
+    [[ -n "${CLAI_OMP_KEYCHAIN:-}" ]] && kc=("${CLAI_OMP_KEYCHAIN}")
+    # Without -w, security reports whether the item exists and reads no secret.
+    if command -v security >/dev/null 2>&1 &&
+        security find-generic-password -s "${KEY_SERVICE}" -a "${KEY_ACCOUNT}" "${kc[@]}" >/dev/null 2>&1; then
+        echo "!security find-generic-password -s ${KEY_SERVICE} -a ${KEY_ACCOUNT} -w${kc[*]:+ ${kc[*]}}"
+    elif [[ -n "${CLAI_OMP_CF_KEY_REF:-}" ]]; then
+        echo "!op read '${CLAI_OMP_CF_KEY_REF}'"
+    fi
+}
+
+# Prints "<base_url> <gateway_id>" from the file this hook wrote before.
+routing_from_file() {
+    [[ -r "${MODELS_YML}" && "${CLAI_OMP_REFRESH:-0}" != "1" ]] || return 1
+    awk '$1 == "baseUrl:" { u = $2 } $1 == "cf-aig-gateway-id:" { g = $2 }
+         END { if (u != "" && g != "") print u, g; else exit 1 }' "${MODELS_YML}"
+}
+
+# Prints the op:// item of the routing: CLAI_OMP_CF_OP_ITEM, or the one
+# item tagged ROUTING_TAG.
+routing_item() {
+    if [[ -n "${CLAI_OMP_CF_OP_ITEM:-}" ]]; then
+        echo "${CLAI_OMP_CF_OP_ITEM}"
+        return 0
+    fi
+    local items
+    items="$(op item list --tags "${ROUTING_TAG}" --format json)" || return 1
+    [[ "$(jq 'length' <<<"${items}")" == 1 ]] || {
+        log "want exactly one 1Password item tagged ${ROUTING_TAG}"
+        return 1
+    }
+    jq -r '.[0] | "op://\(.vault.id)/\(.id)"' <<<"${items}"
+}
+
+routing_from_op() {
+    command -v op >/dev/null 2>&1 || { log "op not on PATH"; return 1; }
+    local item base_url gateway_id
+    item="$(routing_item)" || return 1
+    base_url="$(op read "${item}/gateway/base_url")" || return 1
+    gateway_id="$(op read "${item}/gateway/gateway_id")" || return 1
+    echo "${base_url} ${gateway_id}"
 }
 
 render() {
-    local base_url="$1" gateway_id="$2"
+    local base_url="$1" gateway_id="$2" key="$3"
     cat <<YML
 ${MARKER}
 # Edit the hook, not this file; delete the marker line to take it over.
@@ -54,7 +104,7 @@ providers:
   cf-workers-ai:
     baseUrl: ${base_url}
     api: openai-completions
-    apiKey: "!op read '${KEY_REF}'"
+    apiKey: "${key}"
     headers:
       cf-aig-gateway-id: ${gateway_id}
       cf-aig-metadata: '{"tool":"omp"}'
@@ -71,12 +121,24 @@ YML
 # --- Flow functions ---
 
 write_models() {
-    local base_url gateway_id tmp
-    base_url="$(op read "${OP_ITEM}/gateway/base_url")" || { log "op read base_url failed; skipping"; return 0; }
-    gateway_id="$(op read "${OP_ITEM}/gateway/gateway_id")" || { log "op read gateway_id failed; skipping"; return 0; }
+    local key routing tmp
+    key="$(key_command)"
+    [[ -n "${key}" ]] || {
+        log "no key: run clai.d/omp/seed-gateway-key.zsh once (or set CLAI_OMP_CF_KEY_REF)"
+        return 0
+    }
+    routing="$(routing_from_file)" || routing="$(routing_from_op)" || {
+        log "no gateway routing (1Password); skipping"
+        return 0
+    }
     mkdir -p "$(dirname "${MODELS_YML}")"
     tmp="$(mktemp "${MODELS_YML}.XXXXXX")"
-    render "${base_url}" "${gateway_id}" > "${tmp}"
+    # shellcheck disable=SC2086  # routing is two words, on purpose
+    render ${routing} "${key}" > "${tmp}"
+    if [[ -e "${MODELS_YML}" ]] && cmp -s "${tmp}" "${MODELS_YML}"; then
+        rm -f "${tmp}"
+        return 0
+    fi
     mv -f "${tmp}" "${MODELS_YML}"
     log "wrote ${MODELS_YML}"
 }
@@ -84,9 +146,8 @@ write_models() {
 # --- Main ---
 
 main() {
-    command -v op >/dev/null 2>&1 || { log "op not on PATH; skipping"; exit 0; }
+    command -v jq >/dev/null 2>&1 || { log "jq not found; skipping"; exit 0; }
     owned_or_absent || { log "${MODELS_YML} is hand-managed; leaving it"; exit 0; }
-    needs_write || exit 0
     write_models || log "write failed (non-fatal)"
     exit 0
 }

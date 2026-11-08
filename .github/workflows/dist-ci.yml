@@ -236,6 +236,10 @@ jobs:
       - name: Smoketest clai.d/omp/pre/40-model-roles
         run: /bin/bash test/smoketest_clai_omp_roles.sh
 
+      # Hermetic: fake op and security on PATH, a scratch HOME.
+      - name: Smoketest clai.d/omp gateway key in the Keychain
+        run: /bin/bash test/smoketest_clai_omp_cf.sh
+
   shellcheck:
     needs: changes
     if: needs.changes.outputs.shellcheck == 'true'
