@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# 10-disable-mcp -- clai pre-hook for omp
+#
+# Ensures ~/.omp/agent/mcp.json's disabledServers contains every name in
+# the sibling .conf file. omp imports MCP servers from Claude Code (its
+# own config and its plugins), so a server meant for Claude alone would
+# otherwise start under omp too. Idempotent; only adds missing names and
+# never touches mcpServers or any other key. Creates the file when absent.
+#
+# Fail-open: skips with a message if jq is missing or the file does not
+# parse, so a broken file never blocks the launch.
+
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+CONF="${HOOK_DIR}/10-disable-mcp.conf"
+MCP_JSON="${HOME}/.omp/agent/mcp.json"
+
+log() { echo "[clai.d/omp/10-disable-mcp] $*" >&2; }
+
+read_conf() {
+    [[ -r "${CONF}" ]] || return 0
+    sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "${CONF}"
+}
+
+main() {
+    local -a servers=()
+    readarray -t servers < <(read_conf)
+    [[ ${#servers[@]} -gt 0 ]] || exit 0
+    command -v jq >/dev/null 2>&1 || { log "jq not found; skipping"; exit 0; }
+
+    mkdir -p "$(dirname "${MCP_JSON}")"
+    [[ -s "${MCP_JSON}" ]] || echo '{}' > "${MCP_JSON}"
+    jq -e 'type == "object"' "${MCP_JSON}" >/dev/null 2>&1 || {
+        log "${MCP_JSON} is not a JSON object; skipping"
+        exit 0
+    }
+
+    local servers_json tmp
+    servers_json="$(printf '%s\n' "${servers[@]}" | jq -R . | jq -s .)"
+    tmp="$(mktemp "${MCP_JSON}.XXXXXX")"
+    trap 'rm -f "${tmp}"' EXIT
+
+    jq --argjson add "${servers_json}" '
+        .disabledServers = (
+            (.disabledServers // []) as $cur | $cur + ($add - $cur)
+        )
+    ' "${MCP_JSON}" > "${tmp}"
+
+    jq empty "${tmp}" >/dev/null
+    mv -f "${tmp}" "${MCP_JSON}"
+    trap - EXIT
+}
+
+main "$@"
