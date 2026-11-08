@@ -328,6 +328,18 @@ whether the github-workflow skill should require an agent to assign
 itself (or comment "taking this") before work, and to check for one
 first.
 
+Recurred 2026-11-08 on `clai.d/omp/pre/`: tds-utils PR#757 (Kimi on the
+gateway as the fallback behind Copilot, its key in the Keychain) and
+PR#759 (the gateway opt-in, every role on Copilot) were open together,
+each on an owner instruction given to a different session the same day,
+and rewrote the same two hooks in opposite directions. PR#759 landed,
+PR#757 closed with its work unused. The second session did find PR#757
+before writing and could only note the conflict in its PR body: nothing
+makes an open PR on the same files a stop. Second occurrence; the
+proposal stands, widened: before changing a file, list the open PRs that
+touch it, and treat one as a claim to resolve with the owner, not a
+conflict to flag.
+
 ### YAML front-matter turns `off` and `true` into booleans
 
 about: wip
