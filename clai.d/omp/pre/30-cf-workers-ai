@@ -21,6 +21,8 @@
 # which a fresh terminal shows on first use; a prompt left past 10 s fails
 # the launch that way (2026-11-07). Approve the prompt and relaunch.
 #
+# The model roles, Kimi's included, are 40-model-roles'.
+#
 # Fail-open: a non-zero pre-hook aborts the launch, so every path exits 0.
 
 set -euo pipefail
@@ -79,16 +81,6 @@ write_models() {
     log "wrote ${MODELS_YML}"
 }
 
-# Without a default model role, interactive omp opens its provider-login
-# setup wizard and ignores this provider. Set only when models.yml was
-# (re)written, so a role the human changes later is left alone.
-set_roles() {
-    local m="cf-workers-ai/@cf/moonshotai/kimi-k2.7-code"
-    command -v omp >/dev/null 2>&1 || return 0
-    omp config set startup.setupWizard false >/dev/null
-    omp config set modelRoles "{\"default\":\"${m}\",\"smol\":\"${m}\",\"slow\":\"${m}\"}" >/dev/null
-}
-
 # --- Main ---
 
 main() {
@@ -96,7 +88,6 @@ main() {
     owned_or_absent || { log "${MODELS_YML} is hand-managed; leaving it"; exit 0; }
     needs_write || exit 0
     write_models || log "write failed (non-fatal)"
-    set_roles || log "omp config set failed (non-fatal)"
     exit 0
 }
 
