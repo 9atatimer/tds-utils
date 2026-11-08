@@ -117,6 +117,8 @@ test_local_model_takes_the_bulk_roles() {
     for r in default slow plan advisor; do assert_eq "role ${r}" "${KIMI}" "$(role "${r}")"; done
     assert_eq "an unmanaged role is kept" keep/me "$(role vision)"
     assert_eq "Kimi falls back to local" "[\"${LOCAL}\"]" "$(chain)"
+    assert_eq "only a usage limit switches models" usage-limit \
+        "$(jq -r '."retry.fallbackOn" // empty' "${FAKE_DIR}/config.json")"
 }
 
 test_second_run_writes_nothing() {

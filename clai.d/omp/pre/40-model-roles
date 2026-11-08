@@ -10,8 +10,11 @@
 #   Kimi:  default slow plan advisor
 #   local: smol task commit tiny memory widget
 #
-# A Kimi failure (a gateway 429, say) falls back to the local model
-# (retry.fallbackChains, keyed on the Kimi model), so work does not stall.
+# A Kimi usage limit falls back to the local model (retry.fallbackChains,
+# keyed on the Kimi model), so work does not stall. Only a usage limit:
+# retry.fallbackOn is usage-limit, so any other error -- a missing
+# credential above all -- is retried on Kimi and then shown, never hidden
+# behind the local model (Issue#755).
 #
 # The local model is a variant of CLAI_OMP_LOCAL_BASE with num_ctx set
 # (CLAI_OMP_LOCAL_CTX): omp reads a model's context window from that
@@ -85,7 +88,7 @@ desired() {
     done
     [[ -z "${local_sel}" ]] ||
         chains="$(jq -nc --arg k "${KIMI}" --arg m "${local_sel}" '{($k): [$m]}')"
-    jq -nc --argjson r "${roles}" --argjson c "${chains}" '{roles: $r, chains: $c}'
+    jq -nc --argjson r "${roles}" --argjson c "${chains}" '{roles: $r, chains: $c, fallbackOn: "usage-limit"}'
 }
 
 # Applies jq filter $2 to the record setting $1; $3 is the filter's $add.
@@ -118,6 +121,7 @@ apply_roles() {
     update_setting modelRoles '. + $add' "$(jq -c .roles <<<"${want}")" || return 1
     if [[ -n "${local_sel}" ]]; then
         update_setting retry.fallbackChains '. + $add' "$(jq -c .chains <<<"${want}")" || return 1
+        omp config set retry.fallbackOn usage-limit >/dev/null || return 1
     else
         # Drop the chain to the local model only if it is still this hook's.
         update_setting retry.fallbackChains \
