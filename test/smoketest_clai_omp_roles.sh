@@ -65,7 +65,9 @@ SH
     cat >"${SCRATCH}/bin/ollama" <<'SH'
 #!/usr/bin/env bash
 m="${FAKE_DIR}/models"
+[[ -z ${FAKE_DOWN:-} ]] || { echo "Error: could not connect to ollama server" >&2; exit 1; }
 case $1 in
+    list) ls "$m" ;;
     show)
         if [[ $2 == --parameters ]]; then
             [[ -e "$m/$3" ]] || exit 1
@@ -92,7 +94,7 @@ reset_state() {
     mkdir -p "${FAKE_DIR}/models" "${HOME}"
     local name
     for name in "$@"; do : >"${FAKE_DIR}/models/${name}"; done
-    unset FAKE_CREATE_FAIL CLAI_OMP_REFRESH
+    unset FAKE_CREATE_FAIL FAKE_DOWN CLAI_OMP_REFRESH
 }
 
 run_hook() {
@@ -173,6 +175,36 @@ test_stale_ctx_rebuilds() {
     assert_eq "a variant with another num_ctx is rebuilt" 65536 "$(cat "${FAKE_DIR}/models/omp-coder")"
 }
 
+test_lost_model_drops_its_chain() {
+    reset_state qwen3-coder:30b
+    run_hook
+    PATH="${SCRATCH}/bin:${PATH}" omp config set retry.fallbackChains \
+        "$(jq -c '."retry.fallbackChains" + {"other/m": ["x/y"]}' "${FAKE_DIR}/config.json")"
+    rm -f "${FAKE_DIR}/models/"*
+    run_hook
+    assert_eq "the chain to a lost local model is removed" "" "$(chain)"
+    assert_eq "another chain is kept" '["x/y"]' \
+        "$(jq -c '."retry.fallbackChains"["other/m"]' "${FAKE_DIR}/config.json")"
+}
+
+test_server_down_changes_nothing() {
+    reset_state qwen3-coder:30b
+    run_hook
+    PATH="${SCRATCH}/bin:${PATH}" omp config set modelRoles '{"smol":"mine/model"}'
+    local before; before="$(sets)"
+    FAKE_DOWN=1 run_hook || bad "hook exited non-zero with the server down"
+    assert_eq "no config writes with the server down" "${before}" "$(sets)"
+    assert_eq "a hand-set role survives a down server" mine/model "$(role smol)"
+    if grep -q 'ollama pull' "${FAKE_DIR}/stderr"; then bad "server down reported as not pulled"; else ok; fi
+}
+
+test_server_down_first_run_uses_kimi() {
+    reset_state
+    FAKE_DOWN=1 run_hook
+    assert_eq "first run with the server down sets default" "${KIMI}" "$(role default)"
+    assert_eq "first run with the server down keeps smol on Kimi" "${KIMI}" "$(role smol)"
+}
+
 test_no_omp_exits_zero() {
     reset_state qwen3-coder:30b
     PATH="/usr/bin:/bin" "${HOOK}" 2>/dev/null || bad "hook exited non-zero without omp"
@@ -192,6 +224,9 @@ main() {
     test_pulling_later_moves_the_roles
     test_failed_build_keeps_kimi_and_exits_zero
     test_stale_ctx_rebuilds
+    test_lost_model_drops_its_chain
+    test_server_down_changes_nothing
+    test_server_down_first_run_uses_kimi
     test_no_omp_exits_zero
     echo "smoketest_clai_omp_roles: ${pass} passed, ${fail} failed"
     (( fail == 0 ))
