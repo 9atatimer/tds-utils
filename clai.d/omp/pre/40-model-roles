@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# 40-model-roles -- clai pre-hook for omp: route the bulk work to a local model.
+#
+# omp picks a model by role, and its bundled agents name a role, not a
+# model: scout and sonic run on @smol, task on @task, reviewer on @slow.
+# This hook puts the roles that do bulk work on a local Ollama model and
+# keeps the roles that judge on Kimi (30-cf-workers-ai), so the gateway
+# bill pays only for the main loop, planning and review:
+#
+#   Kimi:  default slow plan advisor
+#   local: smol task commit tiny memory widget
+#
+# A Kimi failure (a gateway 429, say) falls back to the local model
+# (retry.fallbackChains, keyed on the Kimi model), so work does not stall.
+#
+# The local model is a variant of CLAI_OMP_LOCAL_BASE with num_ctx set
+# (CLAI_OMP_LOCAL_CTX): omp reads a model's context window from that
+# Modelfile parameter, and Ollama's default is far below what omp's
+# prompts need. It is built in the Ollama that omp discovers (OLLAMA_HOST,
+# else 127.0.0.1:11434), the everyday instance, never the LMDE gateway.
+# The hook never pulls: when the base model is missing it says which
+# `ollama pull` to run and puts every role on Kimi until then.
+#
+# Ownership: the hook writes only when what it wants differs from what it
+# last wrote (STAMP), so a role the human changes by hand stays changed
+# until this file changes. It merges into modelRoles and fallbackChains;
+# other roles and chains are left alone. CLAI_OMP_REFRESH=1 reapplies.
+#
+# Fail-open: a non-zero pre-hook aborts the launch, so every path exits 0.
+
+set -euo pipefail
+
+KIMI="cf-workers-ai/@cf/moonshotai/kimi-k2.7-code"
+LOCAL_BASE="${CLAI_OMP_LOCAL_BASE:-qwen3-coder:30b}"
+LOCAL_NAME="${CLAI_OMP_LOCAL_MODEL:-omp-coder}"
+LOCAL_CTX="${CLAI_OMP_LOCAL_CTX:-65536}"
+STAMP="${HOME}/.omp/agent/.tds-model-roles"
+STRONG_ROLES=(default slow plan advisor)
+LOCAL_ROLES=(smol task commit tiny memory widget)
+
+# --- Helpers ---
+
+log() { echo "[clai.d/omp/40-model-roles] $*" >&2; }
+
+# The num_ctx a model's Modelfile sets, empty when none or no such model.
+model_ctx() {
+    ollama show --parameters "$1" 2>/dev/null |
+        awk '$1 == "num_ctx" { print $2; exit }'
+}
+
+# --- Action functions ---
+
+# Builds LOCAL_NAME from LOCAL_BASE unless it exists with LOCAL_CTX.
+# Returns non-zero when no local model can be offered.
+ensure_local_model() {
+    command -v ollama >/dev/null 2>&1 || { log "ollama not on PATH; roles stay on Kimi"; return 1; }
+    [[ "$(model_ctx "${LOCAL_NAME}")" == "${LOCAL_CTX}" ]] && return 0
+    ollama show "${LOCAL_BASE}" >/dev/null 2>&1 || {
+        log "${LOCAL_BASE} is not pulled; run: ollama pull ${LOCAL_BASE}"
+        return 1
+    }
+    local dir rc=0
+    dir="$(mktemp -d)"
+    printf 'FROM %s\nPARAMETER num_ctx %s\n' "${LOCAL_BASE}" "${LOCAL_CTX}" > "${dir}/Modelfile"
+    ollama create "${LOCAL_NAME}" -f "${dir}/Modelfile" >/dev/null 2>&1 || rc=$?
+    rm -rf "${dir}"
+    (( rc == 0 )) || { log "ollama create ${LOCAL_NAME} failed; roles stay on Kimi"; return 1; }
+    log "built ${LOCAL_NAME} (${LOCAL_BASE}, num_ctx ${LOCAL_CTX})"
+}
+
+# The roles and chains this hook wants, as one JSON object.
+desired() {
+    local local_sel="$1" role roles="{}" chains="{}"
+    for role in "${STRONG_ROLES[@]}"; do
+        roles="$(jq -c --arg r "${role}" --arg m "${KIMI}" '.[$r] = $m' <<<"${roles}")"
+    done
+    for role in "${LOCAL_ROLES[@]}"; do
+        roles="$(jq -c --arg r "${role}" --arg m "${local_sel:-${KIMI}}" '.[$r] = $m' <<<"${roles}")"
+    done
+    [[ -z "${local_sel}" ]] ||
+        chains="$(jq -nc --arg k "${KIMI}" --arg m "${local_sel}" '{($k): [$m]}')"
+    jq -nc --argjson r "${roles}" --argjson c "${chains}" '{roles: $r, chains: $c}'
+}
+
+# Merges $2 (a JSON object) over the record setting $1.
+merge_setting() {
+    local key="$1" add="$2" cur
+    cur="$(omp config get "${key}" --json | jq -c '.value // {}')" || return 1
+    omp config set "${key}" "$(jq -nc --argjson a "${cur}" --argjson b "${add}" '$a + $b')" >/dev/null || return 1
+}
+
+# --- Flow functions ---
+
+apply_roles() {
+    local local_sel="" want
+    ensure_local_model && local_sel="ollama/${LOCAL_NAME}:latest"
+    want="$(desired "${local_sel}")" || return 1
+    if [[ "${CLAI_OMP_REFRESH:-0}" != "1" && -r "${STAMP}" && "$(cat "${STAMP}")" == "${want}" ]]; then
+        return 0
+    fi
+    # set -e does not reach into a function called with ||, so each step
+    # returns on failure itself: the stamp is written only after all landed.
+    # Without a default role, interactive omp opens its setup wizard.
+    omp config set startup.setupWizard false >/dev/null || return 1
+    merge_setting modelRoles "$(jq -c .roles <<<"${want}")" || return 1
+    merge_setting retry.fallbackChains "$(jq -c .chains <<<"${want}")" || return 1
+    mkdir -p "$(dirname "${STAMP}")" && printf '%s\n' "${want}" > "${STAMP}" || return 1
+    log "roles: Kimi for ${STRONG_ROLES[*]}; ${local_sel:-Kimi} for ${LOCAL_ROLES[*]}"
+}
+
+# --- Main ---
+
+main() {
+    command -v omp >/dev/null 2>&1 || { log "omp not on PATH; skipping"; exit 0; }
+    command -v jq >/dev/null 2>&1 || { log "jq not found; skipping"; exit 0; }
+    apply_roles || log "setting roles failed (non-fatal)"
+    exit 0
+}
+
+main "$@"
