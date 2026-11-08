@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# asbot -- run one command as 9atatimer-bot from a session running as the owner.
+#
+# The command runs under `op run` with the environment `claude-as-bot
+# --print-env` gives: the bot's token (resolved from its op:// reference by
+# 1Password, never stored), commits under the bot's name, GitHub over HTTPS.
+# It runs only after `gh api user` proves the login is the bot.
+#
+# Fail-closed where the inline form fails open: in
+# `op run --env-file <(claude-as-bot --print-env) -- cmd`, a failing
+# claude-as-bot leaves an empty env file and op runs cmd as the owner
+# (tds-utils#717). Here the env is captured first and its failure stops
+# everything. Holds no credential: the reference comes from
+# TDS_BOT_GH_TOKEN_REF via claude-as-bot.
+#
+# Run it in the foreground: op's 1Password prompt goes unseen in a
+# background job and times out.
+#
+# Usage: asbot <command> [args...]
+
+set -euo pipefail
+
+# --- Constants ---
+
+BOT_LOGIN="9atatimer-bot"
+
+# --- Action functions ---
+
+usage() {
+    sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' >&2
+}
+
+die() {
+    echo "asbot: $*" >&2
+    exit 1
+}
+
+# --- Main ---
+
+main() {
+    [[ $# -gt 0 ]] || { usage; exit 2; }
+
+    local session_env
+    session_env="$(claude-as-bot --print-env)" \
+        || die "claude-as-bot --print-env failed; nothing was run"
+    [[ -n ${session_env} ]] || die "claude-as-bot printed no environment; nothing was run"
+
+    # The guard runs inside op's environment, so it checks the identity the
+    # command will actually have.
+    # shellcheck disable=SC2016 # expanded by the inner bash, not here
+    exec op run --env-file <(printf '%s\n' "${session_env}") -- \
+        bash -c '
+            login="$(gh api user --jq .login)" || { echo "asbot: gh api user failed; nothing was run" >&2; exit 1; }
+            [[ $login == "$0" ]] || { echo "asbot: GitHub login is ${login:-<none>}, not $0; nothing was run" >&2; exit 1; }
+            exec "$@"
+        ' "${BOT_LOGIN}" "$@"
+}
+
+main "$@"

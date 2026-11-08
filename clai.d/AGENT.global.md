@@ -385,28 +385,21 @@ every repo the fleet works in; the owner's approval is the review.
 - In a cloud session, claude.ai's GitHub integration must be connected as
   the bot; the `claude` App acts as whoever connected it.
 - A session already running as the owner runs every GitHub command AND
-  every `git commit` inside the bot's environment:
-  `op run --env-file <(claude-as-bot --print-env) -- <cmd>`. A commit
-  outside it is authored as the owner.
-- That form fails open: when `claude-as-bot` exits non-zero (an unset
-  `TDS_BOT_GH_TOKEN_REF`, say), the process substitution's status is
-  lost and `op run` runs `<cmd>` as the owner. Make the identity check
-  the wrapped command's first step,
-  `[ "$(gh api user --jq .login)" = 9atatimer-bot ] || exit 1`, so a
-  failed switch stops before it acts. Two PRs went out as the owner
-  this way on 2026-11-07 (tds-utils#717).
-- Before the first push, run `gh api user --jq .login`. If it does not
-  print `9atatimer-bot`, stop and switch identity before acting on GitHub.
+  every `git commit` through tds-utils `bin/asbot`: `asbot <cmd> [args]`,
+  or `asbot bash -c '<several commands>'` for a sequence. It runs `<cmd>`
+  under `op run` with `claude-as-bot --print-env`'s environment, and only
+  after `gh api user` reports `9atatimer-bot`; a failed switch or any
+  other login runs nothing. A commit outside it is authored as the owner.
+- Never the inline `op run --env-file <(claude-as-bot --print-env) -- <cmd>`:
+  it fails open. When `claude-as-bot` exits non-zero, the process
+  substitution's status is lost and `op run` runs `<cmd>` as the owner;
+  two PRs went out as the owner that way on 2026-11-07 (tds-utils#717).
 - `op run` reads the token only once 1Password authorizes it, and an
   unanswered prompt fails the command with `authorization timeout` and
   nothing done. Two wrapped commits failed that way on 2026-11-06
   (misvtt PR#16), one in a `run_in_background` job, where the prompt
-  goes unseen: run each wrapped command in the foreground, and on a
+  goes unseen: run each `asbot` command in the foreground, and on a
   timeout ask the human to unlock 1Password.
-- `<(claude-as-bot --print-env)` is a pipe, read once. Stored in an
-  array and run twice, the second run fails with `bad file descriptor`.
-  Put the form in a function, so each call opens a fresh one:
-  `asbot() { op run --env-file <(claude-as-bot --print-env) -- "$@"; }`.
 
 ## Secrets come from 1Password, never from the environment
 
