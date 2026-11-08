@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "${SCRIPT_DIR}")"
 HOOK="${REPO_DIR}/clai.d/omp/pre/40-model-roles"
 
-STRONG="github-copilot/claude-sonnet-5.5"
+STRONG="github-copilot/kimi-k3"
 DEEP="github-copilot/claude-opus-5.5"
 BULK="github-copilot/claude-haiku-5.5"
 OLD_LOCAL="ollama/omp-coder:latest"

@@ -13,7 +13,9 @@
 #
 # Each default is a Copilot model that answers through omp; Copilot lists
 # some it refuses to omp's integration id (kimi-k2.7-code, gpt-5.5,
-# gpt-5.4-mini), so check `omp -p --model <m>` before changing one.
+# gpt-5.4-mini), so check `omp -p --model <m>` before changing one. The
+# owner wants Kimi as the default (2026-11-08); kimi-k2.7-code is refused,
+# kimi-k3 answers.
 #
 # Local inference is off: omp's local providers (ollama, llama.cpp,
 # lm-studio, apple) go in disabledProviders, so omp does not discover them.
@@ -33,7 +35,7 @@
 
 set -euo pipefail
 
-STRONG="${CLAI_OMP_STRONG_MODEL:-github-copilot/claude-sonnet-5.5}"
+STRONG="${CLAI_OMP_STRONG_MODEL:-github-copilot/kimi-k3}"
 DEEP="${CLAI_OMP_DEEP_MODEL:-github-copilot/claude-opus-5.5}"
 BULK="${CLAI_OMP_BULK_MODEL:-github-copilot/claude-haiku-5.5}"
 STAMP="${HOME}/.omp/agent/.tds-model-roles"
