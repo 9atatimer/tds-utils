@@ -16,6 +16,11 @@
 # hook owns models.yml only while it carries the MARKER line: a hand-written
 # file is left alone. CLAI_OMP_REFRESH=1 rewrites an owned file.
 #
+# omp gives a `!command` key 10 s, then reports "No API key found for
+# cf-workers-ai". `op read` waits on the 1Password authorization prompt,
+# which a fresh terminal shows on first use; a prompt left past 10 s fails
+# the launch that way (2026-11-07). Approve the prompt and relaunch.
+#
 # Fail-open: a non-zero pre-hook aborts the launch, so every path exits 0.
 
 set -euo pipefail
