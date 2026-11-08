@@ -168,7 +168,7 @@ The rule that follows:
 - **`.zprofile`** -- login shells only. Re-invokes `tds_path_apply` to repair the ordering `path_helper` just destroyed. It does not restate the ordering.
 - **`.zshrc`** -- interactive shells only: runtime managers (`nvm`, `pyenv`, `direnv`), completion, history, prompt, tmux. Re-invokes `tds_path_apply` once after those managers, since each prepends its own entries.
 
-Two properties make this hold together. The ordering exists in **one** place, so the three files cannot drift apart. And `tds_path_apply` is **idempotent** -- it subtracts its managed entries from wherever they currently sit and re-seats them -- which matters because `.zshrc` execs tmux, whose shell walks the entire startup sequence a second time.
+Two properties make this hold together. The ordering exists in **one** place, so the three files cannot drift apart. And `tds_path_apply` is **idempotent** -- it subtracts its managed entries from wherever they currently sit and re-seats them -- which matters because `.zshrc` starts tmux, whose shell walks the entire startup sequence a second time.
 
 Heavy initialization is banned from `.zshenv` on cost grounds: sourcing `nvm.sh` alone measures ~456ms, and every `zsh -c` an agent spawns would pay it. Where a manager's *PATH contribution* is needed without the manager, derive it statically -- nvm's default node bin directory is one file read (`$NVM_DIR/alias/default`) away.
 

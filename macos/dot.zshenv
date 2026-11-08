@@ -132,7 +132,7 @@ tds_nvm_default_bin() {
 # path_helper) and from .zshrc (after the runtime managers prepend their own
 # entries). Idempotent by construction: managed entries are subtracted from
 # wherever they currently sit and re-seated, so repeated calls converge on the
-# same PATH instead of stacking. That matters because .zshrc execs tmux, whose
+# same PATH instead of stacking. That matters because .zshrc starts tmux, whose
 # shell walks .zshenv -> /etc/zprofile -> .zprofile -> .zshrc all over again.
 #
 # Directories that do not exist are dropped, which keeps PATH short and lets

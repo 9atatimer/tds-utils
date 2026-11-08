@@ -25,7 +25,7 @@ fi
 # path from PATH -- and brew's own environment eval likewise emits no MANPATH
 # when MANPATH is unset, so setting one here would be a deviation, not a fix.
 #
-# Guarded against re-entry: .zshrc execs tmux, and tmux's shell is both login
+# Guarded against re-entry: .zshrc starts tmux, and tmux's shell is both login
 # and interactive, so this file runs again for every terminal window. brew's
 # own eval prepends unconditionally and therefore grows INFOPATH without bound;
 # PATH is immune because tds_path_apply re-seats rather than prepends, and this
