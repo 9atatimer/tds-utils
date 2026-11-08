@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# 30-cf-workers-ai -- clai pre-hook for omp (oh-my-pi).
+#
+# Writes the `cf-workers-ai` provider into ~/.omp/agent/models.yml: Workers
+# AI's OpenAI-compatible route through the personal AI Gateway (tds-internal
+# ops/terraform/ai-gateway, the bot consumer). The token is never written:
+# omp resolves `apiKey: "!op read ..."` itself at run time. The base URL and
+# gateway id are read from the same 1Password item, once, when the file is
+# written; they name the account, so they live only in this local file.
+#
+# The item reference comes from CLAI_OMP_CF_OP_ITEM (default below). The
+# hook owns models.yml only while it carries the MARKER line: a hand-written
+# file is left alone. CLAI_OMP_REFRESH=1 rewrites an owned file.
+#
+# Fail-open: a non-zero pre-hook aborts the launch, so every path exits 0.
+
+set -euo pipefail
+
+MODELS_YML="${HOME}/.omp/agent/models.yml"
+MARKER="# managed by tds-utils clai.d/omp/pre/30-cf-workers-ai"
+OP_ITEM="${CLAI_OMP_CF_OP_ITEM:-op://Development - Bot/ai-gateway-personal-bot}"
+
+# --- Helpers ---
+
+log() { echo "[clai.d/omp/30-cf-workers-ai] $*" >&2; }
+
+owned_or_absent() {
+    [[ ! -e "${MODELS_YML}" ]] || grep -qxF "${MARKER}" "${MODELS_YML}"
+}
+
+needs_write() {
+    [[ ! -e "${MODELS_YML}" || "${CLAI_OMP_REFRESH:-0}" == "1" ]]
+}
+
+render() {
+    local base_url="$1" gateway_id="$2"
+    cat <<YML
+${MARKER}
+# Edit the hook, not this file; delete the marker line to take it over.
+providers:
+  cf-workers-ai:
+    baseUrl: ${base_url}
+    api: openai-completions
+    apiKey: "!op read '${OP_ITEM}/password'"
+    headers:
+      cf-aig-gateway-id: ${gateway_id}
+      cf-aig-metadata: '{"tool":"omp"}'
+    models:
+      - id: "@cf/moonshotai/kimi-k2.7-code"
+        name: Kimi K2.7 Code (Workers AI)
+        reasoning: true
+        input: [text]
+        contextWindow: 262144
+        maxTokens: 32768
+YML
+}
+
+# --- Flow functions ---
+
+write_models() {
+    local base_url gateway_id tmp
+    base_url="$(op read "${OP_ITEM}/gateway/base_url")" || { log "op read base_url failed; skipping"; return 0; }
+    gateway_id="$(op read "${OP_ITEM}/gateway/gateway_id")" || { log "op read gateway_id failed; skipping"; return 0; }
+    mkdir -p "$(dirname "${MODELS_YML}")"
+    tmp="$(mktemp "${MODELS_YML}.XXXXXX")"
+    render "${base_url}" "${gateway_id}" > "${tmp}"
+    mv -f "${tmp}" "${MODELS_YML}"
+    log "wrote ${MODELS_YML}"
+}
+
+# --- Main ---
+
+main() {
+    command -v op >/dev/null 2>&1 || { log "op not on PATH; skipping"; exit 0; }
+    owned_or_absent || { log "${MODELS_YML} is hand-managed; leaving it"; exit 0; }
+    needs_write || exit 0
+    write_models || log "write failed (non-fatal)"
+    exit 0
+}
+
+main "$@"
