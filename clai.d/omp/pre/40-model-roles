@@ -39,6 +39,9 @@
 # reapplies.
 #
 # Fail-open: a non-zero pre-hook aborts the launch, so every path exits 0.
+# A launch on a machine without ollama or without the task model logs a
+# warning naming the missing piece; the launch still proceeds and the
+# failure shows at sub-agent spawn, visible rather than routed around.
 
 set -euo pipefail
 
@@ -80,9 +83,12 @@ desired() {
 
 # Applies jq filter $3 to setting $1 (absent: the JSON $2); $4 is $add.
 update_setting() {
-    local key="$1" empty="$2" filter="$3" add="$4" cur
+    local key="$1" empty="$2" filter="$3" add="$4" cur out
     cur="$(omp config get "${key}" --json | jq -c --argjson e "${empty}" '.value // $e')" || return 1
-    omp config set "${key}" "$(jq -c --argjson add "${add}" "${filter}" <<<"${cur}")" >/dev/null || return 1
+    # Compute the new value BEFORE the set: a failing jq inside the set's
+    # own $() would pass an empty string to it instead of an error.
+    out="$(jq -c --argjson add "${add}" "${filter}" <<<"${cur}")" || return 1
+    omp config set "${key}" "${out}" >/dev/null || return 1
 }
 
 # --- Flow functions ---
@@ -118,6 +124,20 @@ main() {
     command -v omp >/dev/null 2>&1 || { log "omp not on PATH; skipping"; exit 0; }
     command -v jq >/dev/null 2>&1 || { log "jq not found; skipping"; exit 0; }
     apply_roles || log "setting roles failed (non-fatal)"
+    # The task role points at a local model; when ollama cannot show it,
+    # say so at launch -- shown, not routed around -- instead of first
+    # failing at sub-agent spawn. A warning only; it never blocks. The
+    # probe only makes sense for an ollama/* selector (an override to a
+    # cloud model skips it), and ollama names its models without the
+    # provider prefix.
+    if [[ "${TASK}" == ollama/* ]]; then
+        if command -v ollama >/dev/null 2>&1; then
+            ollama show "${TASK#ollama/}" >/dev/null 2>&1 ||
+                log "task role model ${TASK} not served by ollama; sub-agents fail until it is (or CLAI_OMP_TASK_MODEL changes)"
+        else
+            log "ollama not on PATH; task role model ${TASK} unusable until installed"
+        fi
+    fi
     exit 0
 }
 

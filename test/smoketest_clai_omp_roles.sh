@@ -174,6 +174,45 @@ test_no_omp_exits_zero() {
     ok
 }
 
+# A setting corrupted into the wrong type must not be rewritten empty:
+# the jq filter errors, the update must propagate that, and the hook as
+# a whole still fails open.
+test_type_error_leaves_setting_untouched() {
+    reset_state
+    echo '{"modelRoles": "oops"}' >"${FAKE_DIR}/config.json"
+    local rc=0
+    run_hook || rc=$?
+    assert_eq "a wrong-typed setting is not rewritten" '"oops"' "$(cfg '.modelRoles')"
+    assert_eq "the launch is never blocked" 0 "${rc}"
+}
+
+# The task role points at a local model; when ollama cannot show it, the
+# hook says so at launch (shown, not routed around) and still exits 0.
+test_warns_when_task_model_missing() {
+    reset_state
+    cat >"${SCRATCH}/bin/ollama" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+    chmod +x "${SCRATCH}/bin/ollama"
+    run_hook
+    assert_eq "warning names the model" 1 "$(grep -c "task role model ${TASK}" "${FAKE_DIR}/stderr")"
+    assert_eq "roles still applied" "${TASK}" "$(role task)"
+}
+
+test_no_warning_when_task_model_present() {
+    reset_state
+    # show succeeds only for the bare model name: a hook that forgets to
+    # strip the ollama/ provider prefix gets a warning here.
+    cat >"${SCRATCH}/bin/ollama" <<'SH'
+#!/usr/bin/env bash
+[[ $1 == show && $2 == "omp-coder:latest" ]]
+SH
+    chmod +x "${SCRATCH}/bin/ollama"
+    run_hook
+    assert_eq "no warning when the model shows" 0 "$(grep -c 'task role model' "${FAKE_DIR}/stderr")"
+}
+
 # --- Main ---
 
 main() {
@@ -187,6 +226,9 @@ main() {
     test_refresh_reapplies
     test_models_can_be_overridden
     test_no_omp_exits_zero
+    test_type_error_leaves_setting_untouched
+    test_warns_when_task_model_missing
+    test_no_warning_when_task_model_present
     echo "smoketest_clai_omp_roles: ${pass} passed, ${fail} failed"
     (( fail == 0 ))
 }
