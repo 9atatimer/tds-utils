@@ -1,0 +1,96 @@
+#!/bin/zsh -f
+# seed-bot-token -- copy 9atatimer-bot's GitHub token from 1Password into
+# the macOS login Keychain, where bin/claude-as-bot and bin/asbot read it.
+# Once seeded, they read the token with `security` and never ask
+# 1Password, so there is no prompt per `asbot` call. A HUMAN runs this, in a
+# terminal, once per laptop and after every rotation of the token. An agent
+# never does.
+#
+# Usage: seed-bot-token [<op-reference>]
+#
+#   <op-reference>  the token's op:// reference. Without it, the one
+#                   1Password item tagged agents-gh-bot gives
+#                   op://<vault id>/<item id>/credential. This repo is
+#                   public: it names the tag, never the item.
+#
+# The token is read with `op read`, written with `security -i` from stdin
+# -- so it is never on a command line -- and never printed. It must look
+# like a GitHub token (ghp_, gho_, ghu_, ghs_, ghr_ or github_pat_) before
+# anything is written.
+#
+# The item: service tds.github.9atatimer-bot, account 9atatimer-bot,
+# readable without a prompt only by /usr/bin/security.
+
+set -euo pipefail
+
+# --- Constants ---
+
+readonly KEY_TAG="agents-gh-bot"
+readonly KEY_SERVICE="tds.github.9atatimer-bot"
+readonly KEY_ACCOUNT="9atatimer-bot"
+
+# --- Reporting ---
+
+die() { print -u2 -r -- "seed-bot-token: $*"; exit 1; }
+say() { print -r -- "seed-bot-token: $*"; }
+
+# --- Predicates ---
+
+is_op_reference() { [[ "$1" =~ '^op://[^/]+/[^/]+/.+' ]]; }
+is_token_shaped() { [[ "$1" =~ '^(gh[pousr]_|github_pat_)[A-Za-z0-9_]+$' ]]; }
+
+# --- Preconditions ---
+
+require_human_session() {
+    [[ -t 0 ]] || die "run this yourself, in a terminal: seeding is an interactive op session"
+    [[ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]] \
+        || die "OP_SERVICE_ACCOUNT_TOKEN is set; unset it -- seeding is a human op session"
+    whence -p op >/dev/null || die "op (1Password CLI) not found on PATH"
+    whence -p security >/dev/null || die "security not found on PATH (the Keychain is macOS only)"
+    whence -p jq >/dev/null || die "jq not found on PATH"
+}
+
+# --- Actions ---
+
+# The reference of the one item tagged KEY_TAG.
+reference_by_tag() {
+    local items count
+    items="$(op item list --tags "${KEY_TAG}" --format json)" || die "op item list failed (is 1Password unlocked?)"
+    count="$(jq 'length' <<<"${items}")"
+    [[ "${count}" == 1 ]] || die "${count} 1Password items carry the tag ${KEY_TAG}; want exactly 1"
+    jq -r '.[0] | "op://\(.vault.id)/\(.id)/credential"' <<<"${items}"
+}
+
+# write_token <token> -- add or update the keychain item. The command line
+# goes to `security -i` on stdin, so the token never lands in argv; the
+# shape check has already ruled out quotes and spaces.
+write_token() {
+    print -r -- "add-generic-password -U -s ${KEY_SERVICE} -a ${KEY_ACCOUNT} -T /usr/bin/security -w \"$1\"" \
+        | security -i >/dev/null
+    security find-generic-password -s "${KEY_SERVICE}" -a "${KEY_ACCOUNT}" >/dev/null 2>&1 \
+        || die "the keychain item was not written (is the keychain unlocked?)"
+}
+
+# --- Main ---
+
+main() {
+    (( $# <= 1 )) || die "usage: seed-bot-token [<op-reference>]"
+    require_human_session
+    local ref="${1:-}" token
+    if [[ -n "${ref}" ]]; then
+        is_op_reference "${ref}" || die "not an op:// reference: expected op://<vault>/<item>/<field>"
+    else
+        ref="$(reference_by_tag)"
+    fi
+
+    say "reading the bot's token from 1Password (approve the prompt)..."
+    token="$(op read --no-newline "${ref}")" || die "op read failed"
+    is_token_shaped "${token}" || { token=""; die "the value is not a GitHub token; nothing written"; }
+
+    write_token "${token}"
+    token=""
+    say "the token is in the keychain (service ${KEY_SERVICE})."
+    say "asbot and claude-as-bot read it from there; 1Password is not asked again."
+}
+
+main "$@"

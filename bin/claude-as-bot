@@ -11,11 +11,16 @@
 # removed on exit; the token never does. The owner's own shell and gh login
 # are untouched.
 #
-# The token's 1Password reference is TDS_BOT_GH_TOKEN_REF when that is set
-# (an op:// reference). Otherwise it is found by tag: the one item tagged
-# BOT_TAG in the vaults `op` can read gives op://<vault id>/<item id>/credential.
-# No tagged item, several, or a failed `op` (locked, say) refuses: this
-# public repo names the tag, never a vault or an item (Issue#752).
+# Where the token comes from, first match wins:
+#   - TDS_BOT_GH_TOKEN_REF, an op:// reference, when set;
+#   - the login Keychain (macOS), service KEY_SERVICE, seeded once by a
+#     human with bin/seed-bot-token. The reference is then
+#     keychain:<service>, and the token is read with `security`: no
+#     1Password, so no prompt at every launch or `asbot` call;
+#   - the one 1Password item tagged BOT_TAG, as
+#     op://<vault id>/<item id>/credential. No tagged item, several, or a
+#     failed `op` (locked, say) refuses: this public repo names the tag,
+#     never a vault or an item (Issue#752).
 #
 # Usage: claude-as-bot [--print-env] [claude args...]
 #   --print-env  print the session's environment (the reference, never the
@@ -29,6 +34,7 @@ set -euo pipefail
 BOT_LOGIN="9atatimer-bot"
 BOT_EMAIL="341954893+9atatimer-bot@users.noreply.github.com"
 BOT_TAG="agents-gh-bot"
+KEY_SERVICE="tds.github.9atatimer-bot"
 
 # The session's env file; global so the EXIT trap can still see it after
 # launch() returns.
@@ -37,7 +43,7 @@ ENV_FILE=""
 # --- Action functions ---
 
 usage() {
-    sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # The variables the session runs with; GH_TOKEN holds the op:// reference,
@@ -69,8 +75,15 @@ reference_by_tag() {
     jq -r '.[0] | "op://\(.vault.id)/\(.id)/credential"' <<<"${items}"
 }
 
+# True when the login Keychain holds the bot's token. Without -w,
+# `security` reports the item and reads no secret.
+keychain_has_token() {
+    command -v security >/dev/null 2>&1 &&
+        security find-generic-password -s "${KEY_SERVICE}" -a "${BOT_LOGIN}" >/dev/null 2>&1
+}
+
 valid_reference() {
-    [[ $1 == op://* ]]
+    [[ $1 == op://* || $1 == "keychain:${KEY_SERVICE}" ]]
 }
 
 cleanup() {
@@ -92,6 +105,25 @@ agent_command() {
 
 # --- Flow functions ---
 
+# The Keychain path: the session's variables are exported into this shell
+# (the token too, read with `security`), and the agent inherits them. No
+# file, no argv, no 1Password.
+launch_from_keychain() {
+    local ref=$1
+    shift
+    local line token
+    token=$(security find-generic-password -s "${KEY_SERVICE}" -a "${BOT_LOGIN}" -w) || {
+        echo "claude-as-bot: the Keychain item ${KEY_SERVICE} could not be read; nothing was run" >&2
+        return 1
+    }
+    while IFS= read -r line; do
+        [[ ${line} == GH_TOKEN=* ]] && continue
+        export "${line?}"
+    done < <(session_env "${ref}")
+    export GH_TOKEN="${token}"
+    "$@"
+}
+
 # Not exec: the shell stays to remove the env file, and its exit status is
 # the agent's.
 launch() {
@@ -102,6 +134,10 @@ launch() {
     while IFS= read -r word; do
         agent+=("$word")
     done < <(agent_command)
+    if [[ ${ref} == keychain:* ]]; then
+        launch_from_keychain "${ref}" "${agent[@]}" "$@"
+        return
+    fi
     trap cleanup EXIT INT TERM HUP
     ENV_FILE=$(mktemp "${TMPDIR:-/tmp}/claude-as-bot.XXXXXX")
     session_env "$ref" >"$ENV_FILE"
@@ -124,9 +160,12 @@ main() {
     fi
 
     local ref=${TDS_BOT_GH_TOKEN_REF:-}
+    if [[ -z $ref ]] && keychain_has_token; then
+        ref="keychain:${KEY_SERVICE}"
+    fi
     if [[ -z $ref ]]; then
         ref=$(reference_by_tag) || {
-            echo "claude-as-bot: no bot token reference: set TDS_BOT_GH_TOKEN_REF, or tag the token's 1Password item ${BOT_TAG}" >&2
+            echo "claude-as-bot: no bot token: run bin/seed-bot-token once, set TDS_BOT_GH_TOKEN_REF, or tag the token's 1Password item ${BOT_TAG}" >&2
             exit 2
         }
     fi
