@@ -571,12 +571,23 @@ This repo lands PRs through the tedium merge bot; the rules are in
   The `CODEOWNERS` catch-all needs the owner's approval on every PR, and
   GitHub refuses self-approval, so a PR an agent opens as `9atatimer` can
   never be approved. Start laptop sessions with `bin/claude-as-bot`: the
-  bot's token as `GH_TOKEN` (`TDS_BOT_GH_TOKEN_REF` when set, else the
-  login Keychain once `bin/seed-bot-token` has seeded it, else the
-  1Password item tagged `agents-gh-bot`), GitHub over HTTPS only, commits
-  under the bot's name. Seeded, neither it nor `asbot` asks 1Password. To run one command as the bot from
-  any session, use `bin/asbot <cmd>`. Cloud sessions get the same by connecting claude.ai's GitHub
-  integration as the bot.
+  bot's token as `GH_TOKEN` (the login Keychain once `bin/seed-bot-token`
+  has seeded it, else `TDS_BOT_GH_TOKEN_REF`, else the 1Password item
+  tagged `agents-gh-bot`), GitHub over HTTPS only, commits under the bot's
+  name. Seeded, neither it nor `asbot` asks 1Password. To run one command
+  as the bot from any session, use `bin/asbot <cmd>`. Cloud sessions get
+  the same by connecting claude.ai's GitHub integration as the bot.
+  - The Keychain is first because the variable cannot be trusted to be
+    unset. Long-running processes keep the environment they started
+    with: on 2026-11-10 tmux servers, omp, the `op` daemon and ChatGPT
+    still carried an `op://` value, so every session they started used
+    1Password and prompted, while the agent's own shell showed the
+    variable unset (PR#768). A variable unset in your shell says nothing
+    about another session's; `ps -E -p <pid>` shows what a process
+    inherited. A fast local source must come before one that prompts.
+  - Merging here ships nothing: `asbot` and `claude-as-bot` change on the
+    machine only at `bin/tds-release`, and a session started before it
+    keeps the old `PATH` copy.
 - **`gate` is the only name to add to.** A new CI job goes into `gate`'s
   `needs`; a job outside it cannot block a landing. It also takes
   `needs: changes` and a scope in `.github/scripts/changed-scopes.sh`: on a
