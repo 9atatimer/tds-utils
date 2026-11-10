@@ -417,6 +417,12 @@ every repo the fleet works in; the owner's approval is the review.
   (misvtt PR#16), one in a `run_in_background` job, where the prompt
   goes unseen: run each `asbot` command in the foreground, and on a
   timeout ask the human to unlock 1Password.
+- Every `op` read raises a 1Password modal on the human's screen. When
+  the problem being diagnosed is 1Password itself, ask before running
+  `op`: on 2026-11-10 five read-only diagnostic calls put two modals in
+  front of the owner, who was reporting that `op` already prompted too
+  much. Read state that needs no `op` first (`ps`, config files, git
+  history).
 
 ## Secrets come from 1Password, never from the environment
 
@@ -541,6 +547,15 @@ use that tool's native scoping flag:**
 - `npx turbo run <task> --filter=<pkg>` -- single-package turbo task
 - `uv --directory <path> <subcmd>` -- uv operations in a package dir
 - `make -C <dir> <target>`, `cargo -C <dir> ...`, etc.
+
+A version manager that reads a pin file from the working directory upward
+(tfenv's `.terraform-version`) does not see the pin through a scoping flag:
+`terraform -chdir=<root>` run from another repo gets tfenv's default
+version, 1.5.6 on this laptop, and a root that needs `>= 1.10` refuses
+(2026-11-08). Name the pin instead:
+`TFENV_TERRAFORM_VERSION=$(cat <repo>/.terraform-version) terraform -chdir=...`.
+The repo's toolchain is the one its pin names, never whatever is first on
+`PATH`.
 
 When a tool truly lacks a `-C`/`--directory`/`--filter` flag, prefer passing
 absolute paths to it rather than `cd`-ing. Only reach for `cd` after confirming

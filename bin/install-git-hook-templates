@@ -2,6 +2,11 @@
 # install-git-hook-templates -- wire up the clone-time security audit AND the
 # branch-reuse guard globally.
 #
+# The template carries pre-push too: it refuses a push to a branch whose PR
+# is merged or closed, uncached (docs/branch-guard.md). Git copies the
+# template only at clone or init, so an existing clone gets a hook it lacks
+# by running `git init` in it; that adds missing hooks and replaces none.
+#
 # Points git at a HOME-anchored hook template so every future `git clone` runs
 # clone-audit against the new worktree (see docs/clone-audit.md -- git has no
 # post-clone hook, so we ride post-checkout). The same template ships the
@@ -167,7 +172,7 @@ run_install() {
     print_verify
 }
 
-usage() { sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,41p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 # --- Main ---
 

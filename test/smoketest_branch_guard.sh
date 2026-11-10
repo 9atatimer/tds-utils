@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # smoketest_branch_guard.sh — behavioral smoke test for bin/branch-merged-check
-# and the git-hooks/template/hooks/pre-commit branch-reuse guard.
+# and the git-hooks/template/hooks/pre-commit and pre-push branch-reuse guards.
 #
 # Hermetic: no network, no sleeps, no real gh. The PR state is injected via a
 # tiny fake query fixture pointed at by TDS_BRANCHGUARD_QUERY, and the hook is
@@ -16,6 +16,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "${SCRIPT_DIR}")"
 CHECKER="${REPO_DIR}/bin/branch-merged-check"
 PRE_COMMIT="${REPO_DIR}/git-hooks/template/hooks/pre-commit"
+PRE_PUSH="${REPO_DIR}/git-hooks/template/hooks/pre-push"
+ZERO_SHA="0000000000000000000000000000000000000000"
 
 # --- Test harness ---
 
@@ -365,12 +367,99 @@ test_precommit_bypass() {
     assert "--no-verify commit succeeds" "[ ${rc} -eq 0 ]"
 }
 
+# --- pre-push ---
+
+# Run the real pre-push hook in a repo the way git does: args are the remote
+# name and URL, stdin one "<local ref> <local sha> <remote ref> <remote sha>"
+# line per ref. Sets PUSH_RC / PUSH_OUT.
+attempt_push() {
+    local dir="$1" query="$2" lines="$3"; shift 3
+    PUSH_RC=0
+    # shellcheck disable=SC2034 # read by the assert strings, through eval
+    PUSH_OUT="$(cd "${dir}" && printf '%s\n' "${lines}" | env "$@" TDS_BRANCHGUARD_QUERY="${query}" \
+        bash "${PRE_PUSH}" origin https://github.com/o/r.git 2>&1)" || PUSH_RC=$?
+}
+
+push_line() { printf 'refs/heads/%s %s refs/heads/%s %s' "$2" "$(head_of "$1")" "$2" "${ZERO_SHA}"; }
+
+test_prepush_blocks_merged() {
+    bold "Test: pre-push BLOCKS a push to a MERGED branch"; printf '\n'
+    local dir; dir="$(new_guarded_repo pp-merged)"
+    git -C "${dir}" checkout -q -b feature
+    local q="${WORKROOT}/pp-merged-q"; make_query "${q}" merged
+    attempt_push "${dir}" "${q}" "$(push_line "${dir}" feature)"
+    assert "push refused"          "[ ${PUSH_RC} -ne 0 ]"
+    assert "names the merged PR"   "grep -q 'MERGED PR #123' <<< \"\${PUSH_OUT}\""
+}
+
+test_prepush_ignores_alive_cache() {
+    bold "Test: pre-push checks GitHub even with a fresh alive cache (PR#766)"; printf '\n'
+    local dir; dir="$(new_guarded_repo pp-alive)"
+    git -C "${dir}" checkout -q -b feature
+    mkdir -p "${dir}/.git/tds-branchguard"
+    date +%s > "${dir}/.git/tds-branchguard/feature.alive"
+    local q="${WORKROOT}/pp-alive-q"; make_query "${q}" merged
+    attempt_push "${dir}" "${q}" "$(push_line "${dir}" feature)"
+    assert "a fresh alive marker does not let the push through" "[ ${PUSH_RC} -ne 0 ]"
+}
+
+test_prepush_allows_open() {
+    bold "Test: pre-push ALLOWS a push to an OPEN branch"; printf '\n'
+    local dir; dir="$(new_guarded_repo pp-open)"
+    git -C "${dir}" checkout -q -b feature
+    local q="${WORKROOT}/pp-open-q"; make_query "${q}" open
+    attempt_push "${dir}" "${q}" "$(push_line "${dir}" feature)"
+    assert "push allowed" "[ ${PUSH_RC} -eq 0 ]"
+}
+
+test_prepush_one_merged_ref_blocks_all() {
+    bold "Test: pre-push refuses when any pushed branch is merged"; printf '\n'
+    local dir; dir="$(new_guarded_repo pp-multi)"
+    git -C "${dir}" checkout -q -b feature
+    local q="${WORKROOT}/pp-multi-q"
+    cat > "${q}" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = done-branch ] && { printf '%s\n' "MERGED 9 https://github.com/o/r/pull/9"; exit 0; }
+printf '%s\n' "OPEN 7 https://github.com/o/r/pull/7"
+EOF
+    chmod +x "${q}"
+    attempt_push "${dir}" "${q}" "$(push_line "${dir}" feature)
+$(push_line "${dir}" done-branch)"
+    assert "push refused"        "[ ${PUSH_RC} -ne 0 ]"
+    assert "names the merged one" "grep -q 'done-branch' <<< \"\${PUSH_OUT}\""
+}
+
+test_prepush_skips_trunk_delete_and_tags() {
+    bold "Test: pre-push skips trunk, deletions and tags"; printf '\n'
+    local dir; dir="$(new_guarded_repo pp-skip)"
+    local q="${WORKROOT}/pp-skip-q"; make_query "${q}" merged
+    attempt_push "${dir}" "${q}" "$(push_line "${dir}" main)"
+    assert "trunk push allowed" "[ ${PUSH_RC} -eq 0 ]"
+    attempt_push "${dir}" "${q}" "(delete) ${ZERO_SHA} refs/heads/feature $(head_of "${dir}")"
+    assert "branch deletion allowed" "[ ${PUSH_RC} -eq 0 ]"
+    attempt_push "${dir}" "${q}" "refs/tags/v1 $(head_of "${dir}") refs/tags/v1 ${ZERO_SHA}"
+    assert "tag push allowed" "[ ${PUSH_RC} -eq 0 ]"
+}
+
+test_prepush_fail_open_and_optout() {
+    bold "Test: pre-push fails open when undetermined, and honours the opt-out"; printf '\n'
+    local dir; dir="$(new_guarded_repo pp-open-fail)"
+    git -C "${dir}" checkout -q -b feature
+    local qf="${WORKROOT}/pp-fail-q"; make_query "${qf}" fail
+    attempt_push "${dir}" "${qf}" "$(push_line "${dir}" feature)"
+    assert "undetermined: push allowed" "[ ${PUSH_RC} -eq 0 ]"
+    local qm="${WORKROOT}/pp-optout-q"; make_query "${qm}" merged
+    attempt_push "${dir}" "${qm}" "$(push_line "${dir}" feature)" TDS_BRANCH_GUARD=0
+    assert "TDS_BRANCH_GUARD=0: push allowed" "[ ${PUSH_RC} -eq 0 ]"
+}
+
 # --- Main ---
 
 main() {
     bold "=== branch-guard smoke test ==="; printf '\n\n'
     assert "branch-merged-check is executable" "[ -x '${CHECKER}' ]"
     assert "pre-commit is executable"          "[ -x '${PRE_COMMIT}' ]"
+    assert "pre-push is executable"            "[ -x '${PRE_PUSH}' ]"
 
     setup
     test_checker_states
@@ -389,6 +478,12 @@ main() {
     test_precommit_fail_open
     test_precommit_unexpected_rc
     test_precommit_bypass
+    test_prepush_blocks_merged
+    test_prepush_ignores_alive_cache
+    test_prepush_allows_open
+    test_prepush_one_merged_ref_blocks_all
+    test_prepush_skips_trunk_delete_and_tags
+    test_prepush_fail_open_and_optout
 
     printf '\n'
     bold "=== Results: ${TESTS_PASSED}/${TESTS_RUN} passed"

@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# pre-push - refuse a push to a branch whose GitHub PR is already merged or closed.
+#
+# A push to the branch of a merged PR succeeds and the commits reach no PR and
+# no default branch. The pre-commit branch guard does not cover it: it trusts a
+# per-branch .alive marker for branchguard.ttl (600 s), so a commit made minutes
+# after an earlier one skips the GitHub check. On 2026-11-10 a commit made 17 s
+# after its PR merged was allowed that way and lost (tds-utils Issue#769). A
+# push already needs the network, so this hook asks GitHub every time, for
+# every branch being pushed, and keeps no cache.
+#
+# Git passes the remote name and URL as arguments and one line per ref on
+# stdin: "<local ref> <local sha> <remote ref> <remote sha>". Tags, deletions
+# and trunk branches are skipped. Detection is bin/branch-merged-check, located
+# as pre-commit locates it; its exit code is the contract: 0=terminal PR
+# (refuse), 1=alive (allow), 2=undetermined (fail-open, allow).
+#
+# Opt-out, as pre-commit: TDS_BRANCH_GUARD=0, or branchguard.enabled=false.
+# The human's bypass for one push is `git push --no-verify`; an agent never
+# uses it.
+#
+# Portability: bash 3.2 / BSD-safe. Output is ASCII-only.
+#
+# NOTE: `set -e` is intentionally omitted. A hook must NEVER abort a git
+# operation by accident. The ONLY non-zero exit is a deliberate, confirmed
+# refusal.
+
+set -uo pipefail
+
+ZERO_SHA="0000000000000000000000000000000000000000"
+
+# --- Action functions ---
+
+guard_disabled() {
+    [ "${TDS_BRANCH_GUARD:-1}" = "0" ] && return 0
+    [ "$(git config --bool branchguard.enabled 2>/dev/null)" = "false" ] && return 0
+    return 1
+}
+
+is_trunk() {
+    case "$1" in
+        master | main | develop | trunk ) return 0 ;;
+    esac
+    return 1
+}
+
+# git config -> PATH -> home fallback, as pre-commit. Prints the path.
+locate_checker() {
+    local checker cand
+    checker="$(git config --type=path --get branchguard.checkerPath 2>/dev/null || true)"
+    if [ -z "${checker}" ] || [ ! -x "${checker}" ]; then
+        checker="$(command -v branch-merged-check 2>/dev/null || true)"
+    fi
+    if [ -z "${checker}" ] || [ ! -x "${checker}" ]; then
+        cand="${HOME:-}/.local/bin/branch-merged-check"
+        [ -n "${HOME:-}" ] && [ -x "${cand}" ] && checker="${cand}"
+    fi
+    [ -n "${checker}" ] && [ -x "${checker}" ] || return 1
+    printf '%s\n' "${checker}"
+}
+
+print_guidance() {
+    echo "pre-push: the commits would reach no PR and no default branch." >&2
+    echo "Cut a fresh branch off your default branch, cherry-pick the commits onto it, and open a new PR." >&2
+}
+
+# --- Main ---
+
+main() {
+    local checker line local_ref local_sha remote_ref remote_sha branch msg rc refused=0
+
+    guard_disabled && exit 0
+    if ! checker="$(locate_checker)"; then
+        echo "pre-push: branch-merged-check not found (set git config branchguard.checkerPath); skipping branch guard." >&2
+        exit 0
+    fi
+
+    while IFS= read -r line; do
+        [ -n "${line}" ] || continue
+        # shellcheck disable=SC2034 # remote_sha is part of git's line format
+        read -r local_ref local_sha remote_ref remote_sha <<<"${line}"
+        [ "${local_sha:-}" = "${ZERO_SHA}" ] && continue     # a deletion
+        case "${remote_ref:-}" in
+            refs/heads/* ) branch="${remote_ref#refs/heads/}" ;;
+            * ) continue ;;                                    # tags, notes
+        esac
+        is_trunk "${branch}" && continue
+
+        msg="$("${checker}" "${branch}" 2>/dev/null)"
+        rc=$?
+        if [ "${rc}" -eq 0 ]; then
+            [ -n "${msg}" ] || msg="branch ${branch} has a merged or closed PR"
+            echo "pre-push: ${msg}" >&2
+            refused=1
+        elif [ "${rc}" -ne 1 ]; then
+            echo "pre-push: could not verify the PR state of '${branch}'; allowing it." >&2
+        fi
+    done
+
+    [ "${refused}" -eq 0 ] && exit 0
+    print_guidance
+    exit 1
+}
+
+main "$@"
