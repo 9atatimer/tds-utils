@@ -81,6 +81,7 @@ lookup_run() {
     local bin="${SCRATCH}/${label}/bin" log="${SCRATCH}/${label}/log"
     mkdir -p "${bin}" "${log}"
     write_lookup_op "${bin}"
+    write_fake_security "${bin}"
     local rc=0
     PATH="${bin}:/usr/bin:/bin" FAKE_LOG="${log}" FAKE_ITEMS="${items}" \
         TDS_BOT_GH_TOKEN_REF='' "$LAUNCHER" --print-env \
@@ -122,6 +123,7 @@ test_the_variable_wins_over_the_tag() {
     local bin="${SCRATCH}/tag-var/bin" log="${SCRATCH}/tag-var/log" out
     mkdir -p "${bin}" "${log}"
     write_lookup_op "${bin}"
+    write_fake_security "${bin}"
     out=$(PATH="${bin}:/usr/bin:/bin" FAKE_LOG="${log}" FAKE_ITEMS='[]' \
         TDS_BOT_GH_TOKEN_REF='op://set/by/hand' "$LAUNCHER" --print-env)
     check "a set reference is used" "$out" 'GH_TOKEN=op://set/by/hand'
@@ -151,7 +153,10 @@ case "$*" in
     *) exit 9 ;;
 esac
 [ -n "${FAKE_KEYCHAIN_TOKEN:-}" ] || exit 44
-case "$*" in *" -w") echo "${FAKE_KEYCHAIN_TOKEN}" ;; esac
+case "$*" in *" -w")
+    [ -z "${FAKE_KEYCHAIN_UNREADABLE:-}" ] || exit 51
+    echo "${FAKE_KEYCHAIN_TOKEN}" ;;
+esac
 exit 0
 STUB
     chmod +x "${dir}/security"
@@ -183,6 +188,43 @@ test_the_keychain_launch_needs_no_op() {
     expect_eq "keychain launch: commits are the bot's" 9atatimer-bot "$(cat "${log}/author" 2>/dev/null)"
     expect_eq "keychain launch: op is never run" "" "$(cat "${log}/env_file" 2>/dev/null)"
     expect_eq "keychain launch: no env file left" "" "$(ls "${tmp}")"
+}
+
+test_the_keychain_beats_a_set_variable() {
+    local bin="${SCRATCH}/kc-var/bin" log="${SCRATCH}/kc-var/log" out
+    mkdir -p "${bin}" "${log}"
+    write_lookup_op "${bin}"
+    write_fake_security "${bin}"
+    out=$(PATH="${bin}:/usr/bin:/bin" FAKE_LOG="${log}" FAKE_ITEMS='[]' FAKE_KEYCHAIN_TOKEN=ghp_kc \
+        TDS_BOT_GH_TOKEN_REF='op://set/by/hand' "$LAUNCHER" --print-env 2>/dev/null) || true
+    check "the keychain beats a set TDS_BOT_GH_TOKEN_REF" "$out" 'GH_TOKEN=keychain:tds.github.9atatimer-bot'
+}
+
+test_an_unreadable_keychain_launch_falls_back() {
+    local case_dir="${SCRATCH}/kc-fallback"
+    local bin="${case_dir}/bin" log="${case_dir}/log" tmp="${case_dir}/tmp" rc=0
+    mkdir -p "${bin}" "${log}" "${tmp}"
+    write_fake_op "${bin}"
+    write_fake_security "${bin}"
+    write_fake_agent "${bin}" claude
+    PATH="${bin}:/usr/bin:/bin" TMPDIR="${tmp}" FAKE_LOG="${log}" FAKE_KEYCHAIN_TOKEN=ghp_kc FAKE_KEYCHAIN_UNREADABLE=1 \
+        TDS_BOT_GH_TOKEN_REF='op://vault/item/credential' "$LAUNCHER" -p >/dev/null 2>"${log}/stderr" || rc=$?
+    expect_eq "unreadable keychain: the launch still runs" 0 "${rc}"
+    expect_eq "unreadable keychain: the agent gets the 1Password token" fake-resolved-token "$(cat "${log}/token" 2>/dev/null)"
+    check "unreadable keychain: says to re-seed" "$(cat "${log}/stderr")" 'seed-bot-token'
+}
+
+test_an_unreadable_keychain_without_a_variable_refuses() {
+    local case_dir="${SCRATCH}/kc-nofallback"
+    local bin="${case_dir}/bin" log="${case_dir}/log" tmp="${case_dir}/tmp" rc=0
+    mkdir -p "${bin}" "${log}" "${tmp}"
+    write_fake_op "${bin}"
+    write_fake_security "${bin}"
+    write_fake_agent "${bin}" claude
+    PATH="${bin}:/usr/bin:/bin" TMPDIR="${tmp}" FAKE_LOG="${log}" FAKE_KEYCHAIN_TOKEN=ghp_kc FAKE_KEYCHAIN_UNREADABLE=1 \
+        TDS_BOT_GH_TOKEN_REF='' "$LAUNCHER" -p >/dev/null 2>"${log}/stderr" || rc=$?
+    if [ "${rc}" -ne 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: unreadable keychain, no variable: must refuse" >&2; fi
+    expect_eq "unreadable keychain, no variable: the agent never runs" "" "$(cat "${log}/argv" 2>/dev/null)"
 }
 
 # --- Launch fixtures ---
@@ -258,6 +300,7 @@ launch_case() {
     local bin="${case_dir}/bin" log="${case_dir}/log" tmp="${case_dir}/tmp"
     mkdir -p "${bin}" "${log}" "${tmp}"
     write_fake_op "${bin}"
+    write_fake_security "${bin}"
     write_fake_agent "${bin}" claude
     if [ "${agent}" = clai ]; then
         write_fake_agent "${bin}" clai
@@ -299,6 +342,10 @@ test_launch_falls_back_to_claude() {
 
 trap cleanup EXIT INT TERM HUP
 SCRATCH=$(mktemp -d)
+# Cases that inherit PATH must never reach the real Keychain.
+mkdir -p "${SCRATCH}/nokc"
+write_fake_security "${SCRATCH}/nokc"
+PATH="${SCRATCH}/nokc:${PATH}"
 
 test_the_session_env_is_the_bot
 test_the_tag_finds_the_reference
@@ -308,6 +355,9 @@ test_a_failed_lookup_is_refused
 test_the_variable_wins_over_the_tag
 test_the_keychain_is_preferred_to_the_tag
 test_the_keychain_launch_needs_no_op
+test_the_keychain_beats_a_set_variable
+test_an_unreadable_keychain_launch_falls_back
+test_an_unreadable_keychain_without_a_variable_refuses
 test_a_literal_token_is_refused
 test_launch_runs_clai_and_cleans_up
 test_launch_falls_back_to_claude
