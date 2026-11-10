@@ -232,6 +232,10 @@ jobs:
       - name: Smoketest bin/asbot
         run: /bin/bash test/smoketest_asbot.sh
 
+      # Hermetic: the real checker with an injected PR state; throwaway repos.
+      - name: Smoketest branch guard (pre-commit, pre-push)
+        run: /bin/bash test/smoketest_branch_guard.sh
+
       # Hermetic: fake op and security on PATH; a pty from python3.
       - name: Smoketest bin/seed-bot-token
         run: /bin/bash test/smoketest_seed_bot_token.sh

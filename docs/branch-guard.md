@@ -8,6 +8,7 @@ Code:
 - `bin/branch-merged-check` -- the checker (queries GitHub PR state; never
   executes repo content).
 - `git-hooks/template/hooks/pre-commit` -- the primary BLOCK gate.
+- `git-hooks/template/hooks/pre-push` -- the last BLOCK gate, uncached.
 - `git-hooks/template/hooks/post-checkout` -- the advisory WARN gate (shared
   with clone-audit).
 - `bin/install-git-hook-templates` -- the installer (wires both guards).
@@ -26,12 +27,16 @@ The branch guard catches the mistake locally, at the two moments it matters:
 
 - **pre-commit (BLOCK)** -- the primary, earliest gate. Before a commit lands
   on a branch with a terminal PR, the hook aborts the commit with a message.
+- **pre-push (BLOCK)** -- the last gate. Before a push to a branch with a
+  terminal PR, the hook refuses the push. It asks GitHub every time and keeps
+  no cache, because a commit can be on a branch before its PR merges and the
+  push can come after (below, Caching).
 - **post-checkout (WARN)** -- a heads-up. When you check out a retired branch,
   the hook prints a warning. It cannot block (post-checkout always exits 0), so
   it is a reminder, not a wall.
 
-Both are **client-side git hooks: advisory and bypassable** (`git commit
---no-verify`). They stop the honest mistake, not a determined bypass. The
+All three are **client-side git hooks: advisory and bypassable** (`git commit
+--no-verify`, `git push --no-verify`). They stop the honest mistake, not a determined bypass. The
 complementary unbypassable wall is a **server-side push ruleset** on the remote
 that rejects pushes to retired branch names. GitHub has **no native "no branch
 reuse" rule** -- you build that with a ruleset / branch protection or a CI
@@ -129,6 +134,13 @@ guard hermetically testable with no network -- see
    this one commit with `git commit --no-verify`. Undetermined -> fail open. Alive ->
    allow.
 
+**pre-push**, for each branch being pushed (tags, deletions and trunk
+branches are skipped): opt-out (`TDS_BRANCH_GUARD=0` or `branchguard.enabled`
+false) -> skip; otherwise run the checker, with no cache. A terminal PR on any
+pushed branch refuses the whole push (exit 1), naming the PR, with this
+guidance: cut a fresh branch, cherry-pick the commits onto it, open a new PR.
+Undetermined -> fail open, with a line saying so. Alive -> allow.
+
 **post-checkout** warns only. On an ordinary branch checkout of a retired
 branch it prints an ASCII warning telling you the branch is merged/closed and
 you should cut a fresh branch. It never blocks and stays silent when nothing is
@@ -153,6 +165,13 @@ Encoding `%` first keeps a literal `a%2Fb` (→ `a%252Fb`) from colliding with
   check. Within `branchguard.ttl` seconds (default `600`) the hook skips the
   network re-check; once stale it re-queries. Undetermined results write **no**
   marker, so the next commit retries.
+
+The `.alive` window is why `pre-push` exists. On 2026-11-10 a worktree's
+first commit wrote an `.alive` marker at 19:09:13; its PR merged at 19:17:44;
+a second commit at 19:18:01, inside the 600 s window, skipped the network
+check and was allowed. It was pushed straight after and reached no PR and
+no default branch (Issue#769). `pre-push` caches nothing, so the same push
+is refused.
 
 Marker writes are atomic (temp file + `mv`) and tolerate a read-only git dir:
 if the write fails the verdict is still enforced for the current commit -- the
