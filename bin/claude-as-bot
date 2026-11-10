@@ -12,11 +12,14 @@
 # are untouched.
 #
 # Where the token comes from, first match wins:
-#   - TDS_BOT_GH_TOKEN_REF, an op:// reference, when set;
 #   - the login Keychain (macOS), service KEY_SERVICE, seeded once by a
 #     human with bin/seed-bot-token. The reference is then
 #     keychain:<service>, and the token is read with `security`: no
-#     1Password, so no prompt at every launch or `asbot` call;
+#     1Password, so no prompt at every launch or `asbot` call. If the item
+#     exists but cannot be read, the launch falls back to
+#     TDS_BOT_GH_TOKEN_REF with a warning to re-seed, or refuses;
+#   - TDS_BOT_GH_TOKEN_REF, an op:// reference, when set (a cloud session,
+#     or a machine with no Keychain);
 #   - the one 1Password item tagged BOT_TAG, as
 #     op://<vault id>/<item id>/credential. No tagged item, several, or a
 #     failed `op` (locked, say) refuses: this public repo names the tag,
@@ -43,7 +46,7 @@ ENV_FILE=""
 # --- Action functions ---
 
 usage() {
-    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # The variables the session runs with; GH_TOKEN holds the op:// reference,
@@ -112,10 +115,17 @@ launch_from_keychain() {
     local ref=$1
     shift
     local line token
-    token=$(security find-generic-password -s "${KEY_SERVICE}" -a "${BOT_LOGIN}" -w) || {
-        echo "claude-as-bot: the Keychain item ${KEY_SERVICE} could not be read; nothing was run" >&2
-        return 1
-    }
+    token=$(security find-generic-password -s "${KEY_SERVICE}" -a "${BOT_LOGIN}" -w 2>/dev/null) || token=""
+    if [[ -z ${token} ]]; then
+        local fallback=${TDS_BOT_GH_TOKEN_REF:-}
+        if [[ ${fallback} != op://* ]]; then
+            echo "claude-as-bot: the Keychain item ${KEY_SERVICE} could not be read; re-seed it with bin/seed-bot-token. Nothing was run" >&2
+            return 1
+        fi
+        echo "claude-as-bot: the Keychain item ${KEY_SERVICE} could not be read; using TDS_BOT_GH_TOKEN_REF (1Password) instead. Re-seed with bin/seed-bot-token." >&2
+        launch_from_op "${fallback}" "$@"
+        return
+    fi
     while IFS= read -r line; do
         [[ ${line} == GH_TOKEN=* ]] && continue
         export "${line?}"
@@ -124,8 +134,20 @@ launch_from_keychain() {
     "$@"
 }
 
-# Not exec: the shell stays to remove the env file, and its exit status is
-# the agent's.
+# The 1Password path. Not exec: the shell stays to remove the env file,
+# and its exit status is the agent's.
+launch_from_op() {
+    local ref=$1
+    shift
+    trap cleanup EXIT INT TERM HUP
+    ENV_FILE=$(mktemp "${TMPDIR:-/tmp}/claude-as-bot.XXXXXX")
+    session_env "$ref" >"$ENV_FILE"
+    local rc=0
+    op run --env-file "$ENV_FILE" -- "$@" || rc=$?
+    cleanup
+    return "$rc"
+}
+
 launch() {
     local ref=$1
     shift
@@ -136,15 +158,9 @@ launch() {
     done < <(agent_command)
     if [[ ${ref} == keychain:* ]]; then
         launch_from_keychain "${ref}" "${agent[@]}" "$@"
-        return
+    else
+        launch_from_op "${ref}" "${agent[@]}" "$@"
     fi
-    trap cleanup EXIT INT TERM HUP
-    ENV_FILE=$(mktemp "${TMPDIR:-/tmp}/claude-as-bot.XXXXXX")
-    session_env "$ref" >"$ENV_FILE"
-    local rc=0
-    op run --env-file "$ENV_FILE" -- "${agent[@]}" "$@" || rc=$?
-    cleanup
-    return "$rc"
 }
 
 # --- Main ---
@@ -159,9 +175,11 @@ main() {
         exit 0
     fi
 
-    local ref=${TDS_BOT_GH_TOKEN_REF:-}
-    if [[ -z $ref ]] && keychain_has_token; then
+    local ref=""
+    if keychain_has_token; then
         ref="keychain:${KEY_SERVICE}"
+    else
+        ref=${TDS_BOT_GH_TOKEN_REF:-}
     fi
     if [[ -z $ref ]]; then
         ref=$(reference_by_tag) || {

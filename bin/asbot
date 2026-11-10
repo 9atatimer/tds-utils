@@ -10,6 +10,11 @@
 # `security`, with no 1Password and so no prompt per call. An op://
 # reference runs the command under `op run`, which prompts.
 #
+# A Keychain token that cannot be read, or that GitHub rejects (a rotated
+# token), falls back to TDS_BOT_GH_TOKEN_REF when that is set, with a
+# warning to re-seed; without it, nothing runs. A Keychain token that
+# authenticates as anyone but the bot never falls back: nothing runs.
+#
 # Fail-closed where the inline form fails open: in
 # `op run --env-file <(claude-as-bot --print-env) -- cmd`, a failing
 # claude-as-bot leaves an empty env file and op runs cmd as the owner
@@ -48,6 +53,25 @@ die() {
     exit 1
 }
 
+# run_op <session env> <cmd...> -- run the command under `op run`, behind
+# the identity guard.
+run_op() {
+    local session_env=$1
+    shift
+    exec op run --env-file <(printf '%s\n' "${session_env}") -- \
+        bash -c "${GUARD}" "${BOT_LOGIN}" "$@"
+}
+
+# fallback <why> <session env> <cmd...> -- the Keychain token failed: use
+# TDS_BOT_GH_TOKEN_REF if set, else stop.
+fallback() {
+    local why=$1 session_env=$2 ref=${TDS_BOT_GH_TOKEN_REF:-}
+    shift 2
+    [[ ${ref} == op://* ]] || die "${why}; re-seed it with bin/seed-bot-token. Nothing was run"
+    echo "asbot: ${why}; using TDS_BOT_GH_TOKEN_REF (1Password) instead. Re-seed with bin/seed-bot-token." >&2
+    run_op "$(awk -v r="GH_TOKEN=${ref}" '/^GH_TOKEN=/ { print r; next } { print }' <<<"${session_env}")" "$@"
+}
+
 # --- Main ---
 
 main() {
@@ -62,19 +86,26 @@ main() {
     # identity the command will actually have.
     local ref line token
     ref="$(sed -n 's/^GH_TOKEN=//p' <<<"${session_env}")"
-    if [[ ${ref} == keychain:* ]]; then
-        token="$(security find-generic-password -s "${ref#keychain:}" -a "${BOT_LOGIN}" -w)" \
-            || die "the Keychain item ${ref#keychain:} could not be read; nothing was run"
-        [[ -n ${token} ]] || die "the Keychain item ${ref#keychain:} is empty; nothing was run"
-        while IFS= read -r line; do
-            [[ -z ${line} || ${line} == GH_TOKEN=* ]] && continue
-            export "${line?}"
-        done <<<"${session_env}"
-        export GH_TOKEN="${token}"
-        exec bash -c "${GUARD}" "${BOT_LOGIN}" "$@"
+    if [[ ${ref} != keychain:* ]]; then
+        run_op "${session_env}" "$@"
     fi
-    exec op run --env-file <(printf '%s\n' "${session_env}") -- \
-        bash -c "${GUARD}" "${BOT_LOGIN}" "$@"
+
+    local login
+    token="$(security find-generic-password -s "${ref#keychain:}" -a "${BOT_LOGIN}" -w 2>/dev/null)" || token=""
+    [[ -n ${token} ]] || fallback "the Keychain item ${ref#keychain:} could not be read" "${session_env}" "$@"
+    while IFS= read -r line; do
+        [[ -z ${line} || ${line} == GH_TOKEN=* ]] && continue
+        export "${line?}"
+    done <<<"${session_env}"
+    export GH_TOKEN="${token}"
+    token=""
+    login="$(gh api user --jq .login 2>/dev/null)" || {
+        unset GH_TOKEN
+        fallback "GitHub rejected the Keychain token" "${session_env}" "$@"
+    }
+    [[ ${login} == "${BOT_LOGIN}" ]] \
+        || die "GitHub login is ${login:-<none>}, not ${BOT_LOGIN}; nothing was run"
+    exec "$@"
 }
 
 main "$@"
