@@ -395,13 +395,17 @@ every repo the fleet works in; the owner's approval is the review.
 - A session already running as the owner runs every GitHub command AND
   every `git commit` through tds-utils `bin/asbot`: `asbot <cmd> [args]`,
   or `asbot bash -c '<several commands>'` for a sequence. It runs `<cmd>`
-  under `op run` with `claude-as-bot --print-env`'s environment, and only
-  after `gh api user` reports `9atatimer-bot`; a failed switch or any
-  other login runs nothing. A commit outside it is authored as the owner.
+  with `claude-as-bot --print-env`'s environment, and only after
+  `gh api user` reports `9atatimer-bot`; a failed switch or any other
+  login runs nothing. A commit outside it is authored as the owner.
+- `asbot` reads the token from the login Keychain once the human has run
+  tds-utils `bin/seed-bot-token` (once per laptop and per rotation), and
+  then asks 1Password nothing. Unseeded, it falls back to `op run`, which
+  prompts per call.
 - When `asbot` refuses, the action does not happen: never run the same
   command bare, as the owner, instead. Say what refused and stop; the fix
-  is the human's (unlock 1Password, or tag the token's item
-  `agents-gh-bot`). Sessions whose `asbot` refused committed and commented
+  is the human's (unlock 1Password, seed the Keychain with
+  `bin/seed-bot-token`, or tag the token's item `agents-gh-bot`). Sessions whose `asbot` refused committed and commented
   as the owner that way on 2026-11-07 (tds-utils#752).
 - Never the inline `op run --env-file <(claude-as-bot --print-env) -- <cmd>`:
   it fails open. When `claude-as-bot` exits non-zero, the process

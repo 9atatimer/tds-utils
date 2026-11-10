@@ -137,6 +137,54 @@ test_a_literal_token_is_refused() {
     refuse "a refused token is never echoed" "$out" 'ghp_notareference'
 }
 
+# --- Keychain cases: the token seeded once, no 1Password at all ---
+
+# A fake `security`: the bot's item answers FAKE_KEYCHAIN_TOKEN (its
+# existence check, without -w, prints nothing); unset means no item.
+write_fake_security() {
+    local dir=$1
+    cat >"${dir}/security" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+    "find-generic-password -s tds.github.9atatimer-bot -a 9atatimer-bot") ;;
+    "find-generic-password -s tds.github.9atatimer-bot -a 9atatimer-bot -w") ;;
+    *) exit 9 ;;
+esac
+[ -n "${FAKE_KEYCHAIN_TOKEN:-}" ] || exit 44
+case "$*" in *" -w") echo "${FAKE_KEYCHAIN_TOKEN}" ;; esac
+exit 0
+STUB
+    chmod +x "${dir}/security"
+}
+
+test_the_keychain_is_preferred_to_the_tag() {
+    local bin="${SCRATCH}/kc-env/bin" log="${SCRATCH}/kc-env/log" out
+    mkdir -p "${bin}" "${log}"
+    write_lookup_op "${bin}"
+    write_fake_security "${bin}"
+    out=$(PATH="${bin}:/usr/bin:/bin" FAKE_LOG="${log}" FAKE_ITEMS='[]' FAKE_KEYCHAIN_TOKEN=ghp_kc \
+        TDS_BOT_GH_TOKEN_REF='' "$LAUNCHER" --print-env 2>/dev/null) || true
+    check "a seeded keychain is the reference" "$out" 'GH_TOKEN=keychain:tds.github.9atatimer-bot'
+    refuse "--print-env never prints the keychain token" "$out" 'ghp_kc'
+    expect_eq "a seeded keychain skips the 1Password lookup" "" "$(cat "${log}/tags" 2>/dev/null)"
+}
+
+test_the_keychain_launch_needs_no_op() {
+    local case_dir="${SCRATCH}/kc-launch"
+    local bin="${case_dir}/bin" log="${case_dir}/log" tmp="${case_dir}/tmp" rc=0
+    mkdir -p "${bin}" "${log}" "${tmp}"
+    write_fake_op "${bin}"
+    write_fake_security "${bin}"
+    write_fake_agent "${bin}" claude
+    PATH="${bin}:/usr/bin:/bin" TMPDIR="${tmp}" FAKE_LOG="${log}" FAKE_KEYCHAIN_TOKEN=ghp_kc \
+        TDS_BOT_GH_TOKEN_REF='' "$LAUNCHER" -p >/dev/null 2>"${log}/stderr" || rc=$?
+    expect_eq "keychain launch: exits 0" 0 "${rc}"
+    expect_eq "keychain launch: the agent gets the keychain token" ghp_kc "$(cat "${log}/token" 2>/dev/null)"
+    expect_eq "keychain launch: commits are the bot's" 9atatimer-bot "$(cat "${log}/author" 2>/dev/null)"
+    expect_eq "keychain launch: op is never run" "" "$(cat "${log}/env_file" 2>/dev/null)"
+    expect_eq "keychain launch: no env file left" "" "$(ls "${tmp}")"
+}
+
 # --- Launch fixtures ---
 
 SCRATCH=""
@@ -258,6 +306,8 @@ test_no_tagged_item_is_refused
 test_two_tagged_items_are_refused
 test_a_failed_lookup_is_refused
 test_the_variable_wins_over_the_tag
+test_the_keychain_is_preferred_to_the_tag
+test_the_keychain_launch_needs_no_op
 test_a_literal_token_is_refused
 test_launch_runs_clai_and_cleans_up
 test_launch_falls_back_to_claude

@@ -41,7 +41,19 @@ make_fakes() {
 #!/usr/bin/env bash
 [[ -n ${FAKE_CAB_FAIL:-} ]] && { echo "TDS_BOT_GH_TOKEN_REF unset" >&2; exit 1; }
 [[ $1 == --print-env ]] || exit 9
-printf '%s\n' "GH_TOKEN=op://vault/item/credential" "GIT_AUTHOR_NAME=9atatimer-bot"
+ref="op://vault/item/credential"
+[[ -n ${FAKE_CAB_KEYCHAIN:-} ]] && ref="keychain:tds.github.9atatimer-bot"
+printf '%s\n' "GH_TOKEN=${ref}" "GIT_AUTHOR_NAME=9atatimer-bot"
+SH
+
+    # security: `find-generic-password -s S -a A -w` prints FAKE_KEYCHAIN_TOKEN
+    # for the bot's item, or fails when it is unset. Every argv is logged.
+    cat >"${SCRATCH}/bin/security" <<'SH'
+#!/usr/bin/env bash
+echo "security $*" >>"${FAKE_LOG}.argv"
+[[ "$*" == "find-generic-password -s tds.github.9atatimer-bot -a 9atatimer-bot -w" ]] || exit 9
+[[ -n ${FAKE_KEYCHAIN_TOKEN:-} ]] || exit 44
+echo "${FAKE_KEYCHAIN_TOKEN}"
 SH
 
     # op: `op run --env-file F -- cmd...`, resolving op:// values to a fake token.
@@ -77,6 +89,7 @@ SH
 
 run_asbot() {
     : >"${SCRATCH}/log"
+    : >"${SCRATCH}/log.argv"
     PATH="${SCRATCH}/bin:${PATH}" FAKE_LOG="${SCRATCH}/log" "$ASBOT" "$@"
 }
 
@@ -105,6 +118,31 @@ test_the_wrong_login_runs_nothing() {
     if grep -qF 'the-owner' <<<"$err"; then ok; else bad "refusal does not name the login it saw"; fi
 }
 
+test_the_keychain_needs_no_op() {
+    local rc=0
+    FAKE_CAB_KEYCHAIN=1 FAKE_KEYCHAIN_TOKEN=ghp_keychaintoken FAKE_LOGIN=9atatimer-bot \
+        run_asbot record "two words" >/dev/null 2>&1 || rc=$?
+    if [[ $rc -eq 0 ]]; then ok; else bad "exit $rc on the keychain path"; fi
+    if grep -qF 'ran token=ghp_keychaintoken author=9atatimer-bot args=[two words]' "${SCRATCH}/log"; then ok; else bad "command did not run with the keychain token: $(cat "${SCRATCH}/log")"; fi
+    if ! grep -q '^op' "${SCRATCH}/log"; then ok; else bad "op ran on the keychain path (a 1Password prompt)"; fi
+    if ! grep -q ghp_keychaintoken "${SCRATCH}/log.argv"; then ok; else bad "the token reached an argv"; fi
+}
+
+test_the_keychain_path_checks_the_login() {
+    local rc=0
+    FAKE_CAB_KEYCHAIN=1 FAKE_KEYCHAIN_TOKEN=ghp_keychaintoken FAKE_LOGIN=the-owner \
+        run_asbot record x >/dev/null 2>&1 || rc=$?
+    if [[ $rc -ne 0 ]]; then ok; else bad "keychain path: a non-bot login must fail"; fi
+    if ! grep -q '^ran' "${SCRATCH}/log"; then ok; else bad "keychain path: command ran as the-owner"; fi
+}
+
+test_an_unreadable_keychain_runs_nothing() {
+    local rc=0
+    FAKE_CAB_KEYCHAIN=1 FAKE_LOGIN=9atatimer-bot run_asbot record x >/dev/null 2>&1 || rc=$?
+    if [[ $rc -ne 0 ]]; then ok; else bad "an unreadable keychain item must fail"; fi
+    if ! grep -q '^ran' "${SCRATCH}/log"; then ok; else bad "command ran without a token"; fi
+}
+
 test_no_command_is_usage() {
     local rc=0
     FAKE_LOGIN=9atatimer-bot run_asbot >/dev/null 2>&1 || rc=$?
@@ -118,6 +156,9 @@ main() {
     test_runs_the_command_as_the_bot
     test_a_failed_switch_runs_nothing
     test_the_wrong_login_runs_nothing
+    test_the_keychain_needs_no_op
+    test_the_keychain_path_checks_the_login
+    test_an_unreadable_keychain_runs_nothing
     test_no_command_is_usage
     echo "asbot: ${pass} passed, ${fail} failed"
     [[ ${fail} -eq 0 ]]

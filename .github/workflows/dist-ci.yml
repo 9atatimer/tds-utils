@@ -232,6 +232,10 @@ jobs:
       - name: Smoketest bin/asbot
         run: /bin/bash test/smoketest_asbot.sh
 
+      # Hermetic: fake op and security on PATH; a pty from python3.
+      - name: Smoketest bin/seed-bot-token
+        run: /bin/bash test/smoketest_seed_bot_token.sh
+
       # Hermetic: fake omp and ollama on PATH, a scratch HOME.
       - name: Smoketest clai.d/omp/pre/40-model-roles
         run: /bin/bash test/smoketest_clai_omp_roles.sh

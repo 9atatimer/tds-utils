@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # asbot -- run one command as 9atatimer-bot from a session running as the owner.
 #
-# The command runs under `op run` with the environment `claude-as-bot
-# --print-env` gives: the bot's token (resolved from its op:// reference by
-# 1Password, never stored), commits under the bot's name, GitHub over HTTPS.
-# It runs only after `gh api user` proves the login is the bot.
+# The command runs with the environment `claude-as-bot --print-env` gives:
+# the bot's token, commits under the bot's name, GitHub over HTTPS. It runs
+# only after `gh api user` proves the login is the bot.
+#
+# Where the token comes from is claude-as-bot's choice. A `keychain:`
+# reference (the token seeded once with bin/seed-bot-token) is read with
+# `security`, with no 1Password and so no prompt per call. An op://
+# reference runs the command under `op run`, which prompts.
 #
 # Fail-closed where the inline form fails open: in
 # `op run --env-file <(claude-as-bot --print-env) -- cmd`, a failing
@@ -13,8 +17,8 @@
 # everything. Holds no credential: claude-as-bot finds the reference
 # (TDS_BOT_GH_TOKEN_REF, else the 1Password item tagged agents-gh-bot).
 #
-# Run it in the foreground: op's 1Password prompt goes unseen in a
-# background job and times out.
+# On the op:// path, run it in the foreground: op's 1Password prompt goes
+# unseen in a background job and times out.
 #
 # Usage: asbot <command> [args...]
 
@@ -24,10 +28,19 @@ set -euo pipefail
 
 BOT_LOGIN="9atatimer-bot"
 
+# The identity guard, run by bash with the session's environment in place:
+# $0 is the bot's login, "$@" the command.
+# shellcheck disable=SC2016 # expanded by the inner bash, not here
+GUARD='
+    login="$(gh api user --jq .login)" || { echo "asbot: gh api user failed; nothing was run" >&2; exit 1; }
+    [[ $login == "$0" ]] || { echo "asbot: GitHub login is ${login:-<none>}, not $0; nothing was run" >&2; exit 1; }
+    exec "$@"
+'
+
 # --- Action functions ---
 
 usage() {
-    sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' >&2
 }
 
 die() {
@@ -45,15 +58,23 @@ main() {
         || die "claude-as-bot --print-env failed; nothing was run"
     [[ -n ${session_env} ]] || die "claude-as-bot printed no environment; nothing was run"
 
-    # The guard runs inside op's environment, so it checks the identity the
-    # command will actually have.
-    # shellcheck disable=SC2016 # expanded by the inner bash, not here
+    # The guard runs inside the session's environment, so it checks the
+    # identity the command will actually have.
+    local ref line token
+    ref="$(sed -n 's/^GH_TOKEN=//p' <<<"${session_env}")"
+    if [[ ${ref} == keychain:* ]]; then
+        token="$(security find-generic-password -s "${ref#keychain:}" -a "${BOT_LOGIN}" -w)" \
+            || die "the Keychain item ${ref#keychain:} could not be read; nothing was run"
+        [[ -n ${token} ]] || die "the Keychain item ${ref#keychain:} is empty; nothing was run"
+        while IFS= read -r line; do
+            [[ -z ${line} || ${line} == GH_TOKEN=* ]] && continue
+            export "${line?}"
+        done <<<"${session_env}"
+        export GH_TOKEN="${token}"
+        exec bash -c "${GUARD}" "${BOT_LOGIN}" "$@"
+    fi
     exec op run --env-file <(printf '%s\n' "${session_env}") -- \
-        bash -c '
-            login="$(gh api user --jq .login)" || { echo "asbot: gh api user failed; nothing was run" >&2; exit 1; }
-            [[ $login == "$0" ]] || { echo "asbot: GitHub login is ${login:-<none>}, not $0; nothing was run" >&2; exit 1; }
-            exec "$@"
-        ' "${BOT_LOGIN}" "$@"
+        bash -c "${GUARD}" "${BOT_LOGIN}" "$@"
 }
 
 main "$@"
