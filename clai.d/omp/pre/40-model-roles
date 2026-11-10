@@ -1,29 +1,36 @@
 #!/usr/bin/env bash
-# 40-model-roles -- clai pre-hook for omp: every role on GitHub Copilot.
+# 40-model-roles -- clai pre-hook for omp: interactive roles on GitHub
+# Copilot, the task role on the laptop's local ollama.
 #
 # omp picks a model by role, and its bundled agents name a role, not a
 # model: scout and sonic run on @smol, task on @task, reviewer on @slow.
-# Every role runs on a GitHub Copilot model through the owner's own
-# `omp login github-copilot` (owner, 2026-11-08): no 1Password, no
-# Cloudflare gateway, no local inference.
+# The interactive roles run on a GitHub Copilot model through the owner's
+# own `omp login github-copilot` (owner, 2026-11-08): no 1Password, no
+# Cloudflare gateway. The task role -- the one every code-changing
+# sub-agent runs on -- runs on local ollama, so sub-agent inference is
+# free (owner, 2026-11-09).
 #
 #   strong (CLAI_OMP_STRONG_MODEL): default
 #   deep   (CLAI_OMP_DEEP_MODEL):   slow plan advisor
-#   bulk   (CLAI_OMP_BULK_MODEL):   smol task commit tiny memory widget
+#   bulk   (CLAI_OMP_BULK_MODEL):   smol commit tiny memory widget
+#   task   (CLAI_OMP_TASK_MODEL):   task
 #
-# Each default is a Copilot model that answers through omp; Copilot lists
+# Each Copilot default is a model that answers through omp; Copilot lists
 # some it refuses to omp's integration id (kimi-k2.7-code, gpt-5.5,
 # gpt-5.4-mini), so check `omp -p --model <m>` before changing one. The
 # owner wants Kimi as the default (2026-11-08); kimi-k2.7-code is refused,
 # kimi-k3 answers.
 #
-# Local inference is off: omp's local providers (ollama, llama.cpp,
-# lm-studio, apple) go in disabledProviders, so omp does not discover them.
-# Every fallback chain that an earlier version of this hook wrote is
-# removed: one keyed on, or falling back to, the local model or a
-# Cloudflare gateway model (the provider 30-cf-workers-ai no longer writes
-# by default). Nothing falls back from Copilot to the gateway or to a
-# local model; a usage limit on Copilot is shown, not routed around.
+# The other local providers (llama.cpp, lm-studio, apple) stay in
+# disabledProviders; ollama is REMOVED from that list -- an earlier
+# version of this hook put it there, and the update only ever added --
+# so omp discovers it. Every fallback chain that earlier version wrote
+# is still removed: one keyed on, or falling back to, the local model or
+# a Cloudflare gateway model (the provider 30-cf-workers-ai no longer
+# writes by default). The task role STARTS on the local model rather than
+# falling back to it; nothing falls back from Copilot to the gateway or
+# to a local model, and a usage limit on Copilot is shown, not routed
+# around.
 #
 # Ownership: the hook writes only when what it wants differs from what it
 # last wrote (STAMP), so a role the human changes by hand stays changed
@@ -38,10 +45,12 @@ set -euo pipefail
 STRONG="${CLAI_OMP_STRONG_MODEL:-github-copilot/kimi-k3}"
 DEEP="${CLAI_OMP_DEEP_MODEL:-github-copilot/claude-opus-5.5}"
 BULK="${CLAI_OMP_BULK_MODEL:-github-copilot/claude-haiku-5.5}"
+TASK="${CLAI_OMP_TASK_MODEL:-ollama/omp-coder:latest}"
 STAMP="${HOME}/.omp/agent/.tds-model-roles"
 DEEP_ROLES=(slow plan advisor)
-BULK_ROLES=(smol task commit tiny memory widget)
-LOCAL_PROVIDERS='["ollama","llama.cpp","lm-studio","apple"]'
+BULK_ROLES=(smol commit tiny memory widget)
+TASK_ROLES=(task)
+LOCAL_PROVIDERS='["llama.cpp","lm-studio","apple"]'
 # What an earlier version of this hook chained to: the local model it
 # built, and any model on the Cloudflare gateway provider (30-cf-workers-ai).
 OLD_LOCAL="ollama/omp-coder:latest"
@@ -62,6 +71,9 @@ desired() {
     done
     for role in "${BULK_ROLES[@]}"; do
         roles="$(jq -c --arg r "${role}" --arg m "${BULK}" '.[$r] = $m' <<<"${roles}")"
+    done
+    for role in "${TASK_ROLES[@]}"; do
+        roles="$(jq -c --arg r "${role}" --arg m "${TASK}" '.[$r] = $m' <<<"${roles}")"
     done
     jq -nc --argjson r "${roles}" --argjson p "${LOCAL_PROVIDERS}" '{roles: $r, disabled: $p}'
 }
@@ -88,12 +100,16 @@ apply_roles() {
     # Without a default role, interactive omp opens its setup wizard.
     omp config set startup.setupWizard false >/dev/null || return 1
     update_setting modelRoles '{}' '. + $add' "$(jq -c .roles <<<"${want}")" || return 1
-    update_setting disabledProviders '[]' '. + ($add - .)' "${LOCAL_PROVIDERS}" || return 1
+    # Add the still-disabled local providers, remove ollama: the previous
+    # policy put it there, and a hand-added ollama would survive only
+    # until this hook's next own change, by the stamp rule.
+    update_setting disabledProviders '[]' '. - $add.remove | . + ($add.add - .)' \
+        "$(jq -nc --argjson p "${LOCAL_PROVIDERS}" '{add: $p, remove: ["ollama"]}')" || return 1
     update_setting retry.fallbackChains '{}' \
         'with_entries(select(((.key | startswith($add.gw)) or (.value | any(. == $add.local or startswith($add.gw)))) | not))' \
         "$(jq -nc --arg l "${OLD_LOCAL}" --arg g "${OLD_GATEWAY_PREFIX}" '{local: $l, gw: $g}')" || return 1
     mkdir -p "$(dirname "${STAMP}")" && printf '%s\n' "${want}" > "${STAMP}" || return 1
-    log "roles on Copilot: ${STRONG} (default), ${DEEP} (${DEEP_ROLES[*]}), ${BULK} (${BULK_ROLES[*]}); local providers off"
+    log "roles: ${STRONG} (default), ${DEEP} (${DEEP_ROLES[*]}), ${BULK} (${BULK_ROLES[*]}) on Copilot; ${TASK} (${TASK_ROLES[*]}) on local ollama"
 }
 
 # --- Main ---
