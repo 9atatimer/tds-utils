@@ -10,6 +10,9 @@
 
 set -euo pipefail
 
+# The cases set the variable themselves; the caller's must not leak in.
+unset TDS_BOT_GH_TOKEN_REF
+
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "${SCRIPT_DIR}")"
@@ -70,11 +73,13 @@ done <"$file"
 exec "$@"
 SH
 
-    # gh: `gh api user --jq .login` answers FAKE_LOGIN.
+    # gh: `gh api user --jq .login` answers FAKE_LOGIN, or fails (a 401)
+    # when GH_TOKEN is FAKE_REJECTED_TOKEN.
     cat >"${SCRATCH}/bin/gh" <<'SH'
 #!/usr/bin/env bash
-[[ "$*" == "api user --jq .login" ]] && { echo "${FAKE_LOGIN}"; exit 0; }
-exit 9
+[[ "$*" == "api user --jq .login" ]] || exit 9
+[[ -n ${FAKE_REJECTED_TOKEN:-} && ${GH_TOKEN:-} == "${FAKE_REJECTED_TOKEN}" ]] && { echo "HTTP 401: Bad credentials" >&2; exit 1; }
+echo "${FAKE_LOGIN}"
 SH
 
     # record: writes its argv and the token it saw.
@@ -143,6 +148,42 @@ test_an_unreadable_keychain_runs_nothing() {
     if ! grep -q '^ran' "${SCRATCH}/log"; then ok; else bad "command ran without a token"; fi
 }
 
+test_an_unreadable_keychain_falls_back_to_the_variable() {
+    local rc=0 err
+    err=$(FAKE_CAB_KEYCHAIN=1 FAKE_LOGIN=9atatimer-bot TDS_BOT_GH_TOKEN_REF=op://vault/item/credential \
+        run_asbot record x 2>&1 >/dev/null) || rc=$?
+    if [[ $rc -eq 0 ]]; then ok; else bad "unreadable keychain + variable must run, exit $rc"; fi
+    if grep -qF 'ran token=fake-token' "${SCRATCH}/log"; then ok; else bad "fallback did not run with the 1Password token: $(cat "${SCRATCH}/log")"; fi
+    if grep -qF 'seed-bot-token' <<<"$err"; then ok; else bad "fallback does not say to re-seed"; fi
+}
+
+test_a_rejected_keychain_token_falls_back() {
+    local rc=0 err
+    err=$(FAKE_CAB_KEYCHAIN=1 FAKE_KEYCHAIN_TOKEN=ghp_stale FAKE_REJECTED_TOKEN=ghp_stale FAKE_LOGIN=9atatimer-bot \
+        TDS_BOT_GH_TOKEN_REF=op://vault/item/credential run_asbot record x 2>&1 >/dev/null) || rc=$?
+    if [[ $rc -eq 0 ]]; then ok; else bad "rejected keychain token + variable must run, exit $rc"; fi
+    if grep -qF 'ran token=fake-token' "${SCRATCH}/log"; then ok; else bad "rejected token: fallback did not run with the 1Password token: $(cat "${SCRATCH}/log")"; fi
+    if grep -qF 'seed-bot-token' <<<"$err"; then ok; else bad "rejected token: does not say to re-seed"; fi
+}
+
+test_a_rejected_keychain_token_without_a_variable_refuses() {
+    local rc=0 err
+    err=$(FAKE_CAB_KEYCHAIN=1 FAKE_KEYCHAIN_TOKEN=ghp_stale FAKE_REJECTED_TOKEN=ghp_stale FAKE_LOGIN=9atatimer-bot \
+        run_asbot record x 2>&1 >/dev/null) || rc=$?
+    if [[ $rc -ne 0 ]]; then ok; else bad "rejected token, no variable: must refuse"; fi
+    if ! grep -q '^ran' "${SCRATCH}/log"; then ok; else bad "rejected token, no variable: command ran"; fi
+    if grep -qF 'seed-bot-token' <<<"$err"; then ok; else bad "rejected token, no variable: does not say to re-seed"; fi
+}
+
+test_a_keychain_wrong_login_never_falls_back() {
+    local rc=0
+    FAKE_CAB_KEYCHAIN=1 FAKE_KEYCHAIN_TOKEN=ghp_owner FAKE_LOGIN=the-owner \
+        TDS_BOT_GH_TOKEN_REF=op://vault/item/credential run_asbot record x >/dev/null 2>&1 || rc=$?
+    if [[ $rc -ne 0 ]]; then ok; else bad "keychain wrong login must refuse"; fi
+    if ! grep -q '^op' "${SCRATCH}/log"; then ok; else bad "a wrong login fell back to op"; fi
+    if ! grep -q '^ran' "${SCRATCH}/log"; then ok; else bad "keychain wrong login: command ran"; fi
+}
+
 test_no_command_is_usage() {
     local rc=0
     FAKE_LOGIN=9atatimer-bot run_asbot >/dev/null 2>&1 || rc=$?
@@ -159,6 +200,10 @@ main() {
     test_the_keychain_needs_no_op
     test_the_keychain_path_checks_the_login
     test_an_unreadable_keychain_runs_nothing
+    test_an_unreadable_keychain_falls_back_to_the_variable
+    test_a_rejected_keychain_token_falls_back
+    test_a_rejected_keychain_token_without_a_variable_refuses
+    test_a_keychain_wrong_login_never_falls_back
     test_no_command_is_usage
     echo "asbot: ${pass} passed, ${fail} failed"
     [[ ${fail} -eq 0 ]]
