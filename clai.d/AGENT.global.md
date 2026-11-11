@@ -283,6 +283,15 @@ lands or sends it back. Nonprod holds one build at a time, so name which PR is
 on it. Never prod, and nothing for a documentation-only PR. The repo's
 AGENT.md says which workflow and how.
 
+**The owner can put any branch on nonprod, in any state** (owner,
+2026-11-10): a WIP branch, a draft PR, a branch failing CI. When the owner
+says to deploy it, dispatch it, name any risk in one line, and never hold it
+back. Unprompted, an agent previews only a ready PR whose branch is up to
+date with the default branch, and only when the diff leaves the deploy
+machinery alone (workflows, Terraform, deploy scripts, Durable Object
+migrations): a dispatch runs the branch's own workflow and Terraform with the
+nonprod credentials.
+
 ## One PR per repo per task
 
 A task gets exactly one PR in each repo it touches. Retrospectives, review
