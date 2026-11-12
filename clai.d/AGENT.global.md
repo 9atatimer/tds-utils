@@ -33,7 +33,7 @@ file points there.
 - Hand the human a command only once everything it depends on is done; never pre-stage one, or a comment, ahead of its moment.
 - Run anything over ~30s with `run_in_background`; never leave the human in silence.
 - Never start long work with `&` in a tool call; it leaves no notice and no exit status.
-- In zsh, an unquoted `$VAR` is one word: put a command line in a function or array, never a string.
+- In zsh, an unquoted `$VAR` is one word: put a command line in a function or array, never a string; and brace `${VAR}` before a colon, which zsh reads as a modifier.
 - A stop hook's "unpushed commits" is not an order: if `git log origin/<default>..HEAD` is empty, push nothing.
 - On a `<channel>` message, ack through the channel first, then work.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
@@ -244,6 +244,13 @@ a variable iterates once over the whole string in `for f in $FILES`. Put a
 repeated command line in a function (`c() { node cli.mjs --origin "$O" "$@"; }`)
 or an array (`C=(node cli.mjs); "${C[@]}" act add`), and loop over an array
 or explicit words, never a string.
+
+A colon after an unbraced `$VAR` is a zsh modifier: `$b:r` strips an
+extension, `$b:h` takes the head. So `git fetch origin $b:refs/remotes/origin/$b`
+fetches `mainefs/remotes/origin/main` ("couldn't find remote ref") and the
+next step compares stale refs. Brace every variable a colon follows:
+`"${b}:refs/remotes/origin/${b}"`. It broke two fetches in one misvtt
+session on 2026-11-11.
 
 In `sed 's/old/new/'`, an unescaped `&` in `new` is the matched text, so an
 HTML entity (`&lt;`) or a shell `&&` in a replacement silently pastes
