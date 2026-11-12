@@ -28,7 +28,7 @@ file points there.
 - Never use claude.ai Artifacts (the Artifact tool, any action); an HTML deliverable is a file in the repo.
 - On a classifier refusal, hand the human the exact `!` line once and stop; never route around it with another tool.
 - Never run a deploy or publish command on your own initiative; open the PR and let CI ship it. When the owner tells you in the session to run it, run it.
-- Preview a ready PR on nonprod (dispatch its nonprod workflow on the branch) before asking the owner to land it.
+- Preview a ready PR on the non-production tier (dispatch its deploy workflow on the branch) before asking the owner to land it.
 - Say what a command does before handing it to the human to run.
 - Hand the human a command only once everything it depends on is done; never pre-stage one, or a comment, ahead of its moment.
 - Run anything over ~30s with `run_in_background`; never leave the human in silence.
@@ -46,7 +46,7 @@ file points there.
 - Never queue a "task card"; out-of-scope work is a GitHub Issue.
 - Don't write auto-memory; durable context goes in the repo or this file.
 - Never write a numbered list or a non-ASCII character in Markdown.
-- Never name a tier `staging`; it is `nonprod`.
+- Never name a tier `staging`; the non-production tier is `preview`, and "nonprod" names a quality, never a tier.
 - Answer tersely, stop when done; append nothing unasked unless it is new, changes what the human does, and is not recorded where they will read it.
 - Link every PR and issue with repo and kind in the link text.
 - Read the repo's `AGENT.md` and its `TODO_PLAN.md` if it has one, and read a skill whole, before working.
@@ -170,13 +170,21 @@ recorded there.
 ## Naming: "staging" is a verb, and a verb alone
 
 Never name an environment, host, worker, vault, or suffix `staging` or
-`-stage`. The non-production tier is `nonprod` / `-nonprod` (vaults:
-`Non-Prod`). "Staging" is reserved for the verb sense -- e.g. a bors-style
+`-stage`. "Staging" is reserved for the verb sense -- e.g. a bors-style
 staging branch where commits are staged for batch testing.
 
+A non-production tier is named for what it is: `preview` / `-preview`
+(owner, 2026-11-11). "nonprod" is not a tier: it is the quality of not
+being prod, so it names what serves every non-production tier -- a vault
+(`Non-Prod`), a service account, a state bucket -- never a stage, a
+Terraform root, a GitHub Environment or a hostname label. Tiers named
+`nonprod` before this ruling (tedium) keep the name until someone renames
+them on purpose. tds-internal `docs/policy/INFRASTRUCTURE.md`, Tiers and
+naming, is the authority.
+
 In hostnames the tier is its own DNS label, not a suffix:
-`<service>.nonprod.<zone>` for non-prod, bare `<service>.<zone>` for
-production (e.g. `tedium.nonprod.api9.com` / `tedium.api9.com`).
+`<service>.preview.<zone>` for the preview tier, bare `<service>.<zone>`
+for production (e.g. `misvtt.preview.twobitsw.com` / `mis.twobitsw.com`).
 
 ## Never use interrogative / multiple-choice prompts (AskUserQuestion)
 
@@ -281,16 +289,16 @@ not the owner. The landing gates still hold: a production deploy runs only
 from reviewed, merged history, and a classifier refusal is still handed over
 as a `!` line.
 
-**A ready PR is previewed on nonprod before it lands** (owner, 2026-11-10:
+**A ready PR is previewed on the non-production tier before it lands** (owner, 2026-11-10:
 "there's no point in landing it if I don't like it"). Where a repo has a
-nonprod deploy workflow that takes a dispatched ref, dispatch it on the PR's
+non-production deploy workflow that takes a dispatched ref, dispatch it on the PR's
 branch as the bot once the PR is ready, watch the run to green, and hand the
-owner the nonprod URL with the PR it carries. The owner evaluates there, then
-lands or sends it back. Nonprod holds one build at a time, so name which PR is
+owner that tier's URL with the PR it carries. The owner evaluates there, then
+lands or sends it back. The tier holds one build at a time, so name which PR is
 on it. Never prod, and nothing for a documentation-only PR. The repo's
 AGENT.md says which workflow and how.
 
-**The owner can put any branch on nonprod, in any state** (owner,
+**The owner can put any branch on the non-production tier, in any state** (owner,
 2026-11-10): a WIP branch, a draft PR, a branch failing CI. When the owner
 says to deploy it, dispatch it, name any risk in one line, and never hold it
 back. Unprompted, an agent previews only a ready PR whose branch is up to
