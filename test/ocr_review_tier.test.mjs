@@ -37,6 +37,12 @@ test('misvtt PR#88 (about 60 files, 2,000 lines) would have gone long', () => {
   assert.equal(reviewPlan({ ...BASE, changedFiles: '60', changedLines: '2000' }).tier, 'long');
 });
 
+test('the workflow default, 0, means the default thresholds, not "every PR is large"', () => {
+  // long_review_files and long_review_lines default to 0 in the workflow.
+  assert.equal(reviewPlan({ ...BASE, maxFiles: '0', maxLines: '0' }).tier, 'standard');
+  assert.equal(reviewPlan({ ...BASE, changedFiles: '26', maxFiles: '0', maxLines: '0' }).tier, 'long');
+});
+
 test('a caller may set its own thresholds', () => {
   assert.equal(reviewPlan({ ...BASE, changedFiles: '10', maxFiles: '5' }).tier, 'long');
   assert.equal(reviewPlan({ ...BASE, changedFiles: '30', maxFiles: '50' }).tier, 'standard');
@@ -51,6 +57,7 @@ test('a caller that names its own runner keeps it and its own timeout, whatever 
   const plan = reviewPlan({ ...BASE, changedFiles: '90', callerRunsOn: docker, callerTimeout: '19' });
   assert.equal(plan.runsOn, docker);
   assert.equal(plan.timeoutMinutes, 19);
+  assert.equal(plan.note, '');
 });
 
 test('a large PR with no CI_RUNS_ON_LONG stays on the standard runner and says why', () => {
@@ -71,7 +78,11 @@ test('the task budget never exceeds the step, and never the upstream 15', () => 
   assert.equal(reviewPlan({ ...BASE, callerTimeout: '3' }).taskTimeoutMinutes, 1);
 });
 
-test('a missing or bad caller timeout falls back to 9', () => {
-  assert.equal(reviewPlan({ ...BASE, callerTimeout: '' }).timeoutMinutes, 9);
-  assert.equal(reviewPlan({ ...BASE, callerTimeout: 'soon' }).timeoutMinutes, 9);
+test('a missing, zero or bad caller timeout falls back to 9, with its budgets', () => {
+  for (const callerTimeout of ['', '0', 'soon']) {
+    const plan = reviewPlan({ ...BASE, callerTimeout });
+    assert.equal(plan.timeoutMinutes, 9, callerTimeout);
+    assert.equal(plan.stepTimeoutMinutes, 7, callerTimeout);
+    assert.equal(plan.taskTimeoutMinutes, 7, callerTimeout);
+  }
 });

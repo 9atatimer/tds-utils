@@ -109,9 +109,11 @@ test('authorize: a large PR is planned on the long niner, with its budgets', asy
 test('authorize: a small PR keeps the standard runner and the caller timeout', async () => {
   const step = fakeStep();
   const body = { ...PR_BODY, additions: 10, deletions: 2 };
-  const env = authorizeEnv({ CI_RUNS_ON: STD_RUNS_ON, CI_RUNS_ON_LONG: LONG_RUNS_ON, REVIEW_TIMEOUT_MINUTES: '9' });
+  // The thresholds as the workflow passes them by default: 0.
+  const env = authorizeEnv({ CI_RUNS_ON: STD_RUNS_ON, CI_RUNS_ON_LONG: LONG_RUNS_ON, REVIEW_TIMEOUT_MINUTES: '9', LONG_REVIEW_FILES: '0', LONG_REVIEW_LINES: '0' });
   await runAuthorize({ env, fetch: fakeFetch(() => json(200, body)), step, now: () => 'x' });
   assert.equal(step.outputs.tier, 'standard');
+  assert.equal(step.outputs.review_step_timeout_minutes, '7');
   assert.equal(step.outputs.review_runs_on, STD_RUNS_ON);
   assert.equal(step.outputs.review_timeout_minutes, '9');
   assert.equal(step.outputs.review_task_timeout_minutes, '7');
@@ -122,6 +124,9 @@ test('authorize: a skipped comment still outputs a runnable plan (the review job
   await runAuthorize({ env: authorizeEnv({ COMMENT_BODY: 'nice' }), fetch: fakeFetch(() => json(200, PR_BODY)), step, now: () => 'x' });
   assert.equal(step.outputs.review_runs_on, '"ubuntu-latest"');
   assert.equal(step.outputs.review_timeout_minutes, '9');
+  assert.equal(step.outputs.tier, 'standard');
+  assert.equal(step.outputs.review_step_timeout_minutes, '7');
+  assert.equal(step.outputs.review_task_timeout_minutes, '7');
 });
 
 test('authorize skips a non-/ocr comment without a single API call, and exits 0', async () => {
