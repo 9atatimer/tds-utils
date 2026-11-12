@@ -129,7 +129,7 @@ test('caller: the backend reaches the reusable workflow on a dispatch only (Issu
 test('reusable: workflow_call only, with pr, model, backend, tools_ref and the one secret', () => {
   assert.deepEqual(keysAt(block(REUSABLE, 'on'), 2), ['workflow_call']);
   const call = block(block(REUSABLE, 'on'), 'workflow_call', 2);
-  assert.deepEqual(keysAt(block(call, 'inputs', 4), 6).sort(), ['backend', 'model', 'pr', 'review_runs_on', 'review_timeout_minutes', 'tools_ref']);
+  assert.deepEqual(keysAt(block(call, 'inputs', 4), 6).sort(), ['backend', 'long_review_files', 'long_review_lines', 'model', 'pr', 'review_runs_on', 'review_timeout_minutes', 'tools_ref']);
   assert.deepEqual(keysAt(block(call, 'secrets', 4), 6), ['OLLAMA_GATEWAY_OP_SA_TOKEN']);
 });
 
@@ -142,14 +142,34 @@ test('reusable: exactly the authorize, review and report jobs', () => {
   assert.deepEqual(jobsOf(REUSABLE), ['authorize', 'review', 'report']);
 });
 
-const REVIEW_RUNS_ON = `runs-on: \${{ fromJSON(inputs.review_runs_on || vars.CI_RUNS_ON || '"ubuntu-latest"') }}`;
+// Issue#776: the authorize step plans the review job's runner and timeout
+// (lib/ocr-review/tier.mjs); the job reads the plan, never the inputs.
+const REVIEW_RUNS_ON = `runs-on: \${{ fromJSON(needs.authorize.outputs.review_runs_on || '"ubuntu-latest"') }}`;
 
 test('reusable: authorize and report run on the caller\'s CI_RUNS_ON when set, else GitHub-hosted', () => {
   for (const job of ['authorize', 'report']) assert.ok(jobBlock(REUSABLE, job).includes(RUNS_ON), job);
 });
 
-test('reusable: the review job alone may take the caller\'s review_runs_on, else CI_RUNS_ON, else GitHub-hosted', () => {
+test('reusable: the review job runs where the authorize step planned it, else GitHub-hosted', () => {
   assert.ok(jobBlock(REUSABLE, 'review').includes(REVIEW_RUNS_ON));
+});
+
+test('reusable: the authorize step hands the planner its inputs: both runner variables, the caller runner and timeout, the thresholds', () => {
+  const step = jobBlock(REUSABLE, 'authorize');
+  for (const [name, value] of [
+    ['CI_RUNS_ON', 'vars.CI_RUNS_ON'],
+    ['CI_RUNS_ON_LONG', 'vars.CI_RUNS_ON_LONG'],
+    ['REVIEW_RUNS_ON', 'inputs.review_runs_on'],
+    ['REVIEW_TIMEOUT_MINUTES', 'inputs.review_timeout_minutes'],
+    ['LONG_REVIEW_FILES', 'inputs.long_review_files'],
+    ['LONG_REVIEW_LINES', 'inputs.long_review_lines'],
+  ]) assert.match(step, new RegExp(`${name}:\\s*\\$\\{\\{\\s*${value.replace('.', '\\.')}\\s*\\}\\}`), name);
+});
+
+test('reusable: the Review step has its own timeout under the job, and a task budget that cannot exceed it', () => {
+  const review = jobBlock(REUSABLE, 'review');
+  assert.match(review, /timeout-minutes:\s*\$\{\{\s*fromJSON\(needs\.authorize\.outputs\.review_step_timeout_minutes \|\| '7'\)\s*\}\}/);
+  assert.match(review, /review_task_timeout:\s*\$\{\{\s*needs\.authorize\.outputs\.review_task_timeout_minutes \|\| '7'\s*\}\}/);
 });
 
 test('reusable: authorize and report time out under the standard pool\'s 10-minute container ceiling', () => {
@@ -160,8 +180,8 @@ test('reusable: authorize and report time out under the standard pool\'s 10-minu
   }
 });
 
-test('reusable: the review job takes its timeout from the caller, 9 minutes by default (under the 10-minute ceiling)', () => {
-  assert.match(jobBlock(REUSABLE, 'review'), /timeout-minutes:\s*\$\{\{\s*inputs\.review_timeout_minutes\s*\}\}/);
+test('reusable: the review job takes its planned timeout, the caller\'s 9 minutes by default (under the 10-minute ceiling)', () => {
+  assert.match(jobBlock(REUSABLE, 'review'), /timeout-minutes:\s*\$\{\{\s*fromJSON\(needs\.authorize\.outputs\.review_timeout_minutes \|\| '9'\)\s*\}\}/);
   const input = block(block(block(block(REUSABLE, 'on'), 'workflow_call', 2), 'inputs', 4), 'review_timeout_minutes', 6);
   assert.match(input ?? '', /default:\s*9\b/);
   assert.match(input ?? '', /type:\s*number\b/);
@@ -381,7 +401,7 @@ test('reusable: authorize passes the changed-file count on, and the record step 
   assert.match(block(jobBlock(REUSABLE, 'authorize'), 'outputs', 4), /changed_files:\s*\$\{\{\s*steps\.authorize\.outputs\.changed_files\s*\}\}/);
   const record = jobBlock(REUSABLE, 'report');
   assert.match(record, /AUTHORIZE_OUTPUTS:\s*\$\{\{\s*toJSON\(needs\.authorize\.outputs\)\s*\}\}/);
-  assert.match(record, /REVIEW_TIMEOUT_MINUTES:\s*\$\{\{\s*inputs\.review_timeout_minutes\s*\}\}/);
+  assert.match(record, /REVIEW_TIMEOUT_MINUTES:\s*\$\{\{\s*needs\.authorize\.outputs\.review_timeout_minutes \|\| inputs\.review_timeout_minutes\s*\}\}/);
 });
 
 test('caller: the template adopters copy is the live caller but for its two pins', () => {

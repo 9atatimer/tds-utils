@@ -162,9 +162,10 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
     unparseable or inconsistent with ocr's findings.
   - `reviewed-nothing`: reviewable files existed and ocr reviewed none.
   - `timeout`: the review job reached its `timeout-minutes`; the detail
-    names the limit and the PR's changed-file count. Set the caller
-    repository's `OCR_REVIEW_TIMEOUT_MINUTES` higher on a runner whose
-    ceiling allows it ("A review's length"), or split the PR.
+    names the limit and the PR's changed-file count. A large PR already
+    goes to the long niner when the owner has set `CI_RUNS_ON_LONG`; for
+    one below the thresholds, lower `long_review_files` or
+    `long_review_lines` in the caller, or split the PR.
 - Trends across repos: `bin/ocr-review-stats` (read-only; `-p day|week|month`,
   `-d DAYS`, `-j`).
 
@@ -334,6 +335,26 @@ on opt-in, 2026-11-02):
 
 Keep the timeout under the ceiling of the runner you name. Those reviews
 share the Docker class's cap of 4 instances with the jobs that need Docker.
+
+**A large PR goes to the long niner by itself** (design Key Decisions, a
+large PR on the long niner, 2026-11-12; Issue#776). A PR that changes more
+than 25 files or more than 800 lines runs its review job on the owner's
+`CI_RUNS_ON_LONG` (`cf-pool-long`, a 2-hour ceiling, tds-internal PR#342)
+with a 115-minute timeout, when that variable is set and the caller names
+no `review_runs_on`. A caller can move the thresholds:
+
+```yaml
+    with:
+      long_review_files: 40
+      long_review_lines: 1500
+```
+
+The authorize step logs the plan (`plan: long tier, 115 minutes`). Without
+`CI_RUNS_ON_LONG` a large PR stays on `CI_RUNS_ON` with the caller's
+timeout, and the log line says so. The long niner's cap is 2 instances.
+The Review step has its own timeout, 2 minutes under the job's, so the
+verdict and the uploads still run when the review runs out of time, and
+the action's `review_task_timeout` never exceeds that step.
 
 The caller template passes both inputs from the caller repository's
 variables. With neither `OCR_REVIEW_RUNS_ON` nor `OCR_REVIEW_TIMEOUT_MINUTES`

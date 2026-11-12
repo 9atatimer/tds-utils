@@ -43,6 +43,7 @@ import { BACKENDS, backendProfile, extraHeadersValue, probeGateway, resolveBacke
 import { HOST_TOOLS, checkHostTools, describeHostTools } from '../lib/ocr-review/host-tools.mjs';
 import { ackReaction, isCommentId, outcomeReaction, staleOutcomeIds } from '../lib/ocr-review/reaction.mjs';
 import { buildRecord, endOfRun, markSha, renderSummary, shouldComment, timeoutDetail } from '../lib/ocr-review/record.mjs';
+import { reviewPlan } from '../lib/ocr-review/tier.mjs';
 import { judgeReview, parseCheckAttr, parseNameStatus, parseNumstat, readEngineResult, readPostCounts, reviewableFiles } from '../lib/ocr-review/verdict.mjs';
 
 // --- Constants --------------------------------------------------------------
@@ -138,18 +139,22 @@ const postCountsEnv = (env) => ({
 // --- Flow: authorize --------------------------------------------------------
 
 /** The authorize step. Env: GITHUB_TOKEN, REPO, EVENT_NAME, COMMENT_BODY,
- * AUTHOR_ASSOCIATION, PR. Returns the exit code. */
+ * AUTHOR_ASSOCIATION, PR; for the review job's plan (Issue#776) CI_RUNS_ON,
+ * CI_RUNS_ON_LONG, REVIEW_RUNS_ON, REVIEW_TIMEOUT_MINUTES,
+ * LONG_REVIEW_FILES, LONG_REVIEW_LINES. Returns the exit code. */
 export async function runAuthorize({ env, fetch, step, now }) {
   const trigger = triggerOf(env.EVENT_NAME);
   // The pull request's size, for a timeout's summary (Key Decisions, a
   // timeout is a cause; Issue#631). Read here, where the PR is read anyway.
   let changedFiles = '';
+  let changedLines = '';
   const readPullRequest = async (number) => {
     const res = await fetch(`${apiUrl(env)}/repos/${env.REPO}/pulls/${number}`, { headers: githubHeaders(env.GITHUB_TOKEN) });
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`pulls GET HTTP ${res.status}`);
     const pr = await res.json();
     if (Number.isInteger(pr.changed_files)) changedFiles = String(pr.changed_files);
+    if (Number.isInteger(pr.additions) && Number.isInteger(pr.deletions)) changedLines = String(pr.additions + pr.deletions);
     return {
       state: pr.state,
       headRepo: pr.head?.repo?.full_name ?? null,
@@ -169,6 +174,26 @@ export async function runAuthorize({ env, fetch, step, now }) {
   step.setOutput('base_ref', verdict.baseRef ?? '');
   step.setOutput('started_at', now());
   step.setOutput('changed_files', changedFiles);
+  step.setOutput('changed_lines', changedLines);
+  // The review job's runner and budgets. Always set, so the job's runs-on
+  // and timeout expressions never read an empty output.
+  const plan = reviewPlan({
+    changedFiles,
+    changedLines,
+    callerRunsOn: env.REVIEW_RUNS_ON ?? '',
+    callerTimeout: env.REVIEW_TIMEOUT_MINUTES ?? '',
+    runsOn: env.CI_RUNS_ON ?? '',
+    runsOnLong: env.CI_RUNS_ON_LONG ?? '',
+    maxFiles: env.LONG_REVIEW_FILES ?? '',
+    maxLines: env.LONG_REVIEW_LINES ?? '',
+  });
+  step.log(`plan: ${plan.tier} tier, ${plan.timeoutMinutes} minutes${plan.note ? ` (${plan.note})` : ''}`);
+  step.setOutput('tier', plan.tier);
+  step.setOutput('tier_note', plan.note);
+  step.setOutput('review_runs_on', plan.runsOn);
+  step.setOutput('review_timeout_minutes', String(plan.timeoutMinutes));
+  step.setOutput('review_step_timeout_minutes', String(plan.stepTimeoutMinutes));
+  step.setOutput('review_task_timeout_minutes', String(plan.taskTimeoutMinutes));
   return verdict.decision === 'fail' ? 1 : 0;
 }
 
