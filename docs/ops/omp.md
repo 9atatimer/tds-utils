@@ -2,10 +2,12 @@
 
 omp (oh-my-pi) is one of the fleet's coding agents. It launches as
 `clai omp` (the `omp` alias), and its model configuration is written by
-the clai pre-hooks in `clai.d/omp/pre/` at every launch. Since tds-utils
-PR#759 and PR#760 (2026-11-08) it runs on the owner's GitHub Copilot
-subscription alone: no Cloudflare AI Gateway, no 1Password at launch, no
-local inference.
+the clai pre-hooks in `clai.d/omp/pre/` at every launch. The interactive
+roles run on the owner's GitHub Copilot subscription (tds-utils PR#759
+and PR#760, 2026-11-08); the `task` role -- the one every code-changing
+sub-agent runs on -- runs on the laptop's local ollama, so sub-agent
+inference is free (2026-11-09). No Cloudflare AI Gateway, no 1Password
+at launch.
 
 - Hooks: `clai.d/omp/pre/` (`05-provision`, `10-disable-mcp`,
   `30-cf-workers-ai`, `40-model-roles`).
@@ -27,13 +29,16 @@ a model.
 |---|---|---|
 | `default` | `github-copilot/kimi-k3` | `CLAI_OMP_STRONG_MODEL` |
 | `slow`, `plan`, `advisor` | `github-copilot/claude-opus-5.5` | `CLAI_OMP_DEEP_MODEL` |
-| `smol`, `task`, `commit`, `tiny`, `memory`, `widget` | `github-copilot/claude-haiku-5.5` | `CLAI_OMP_BULK_MODEL` |
+| `smol`, `commit`, `tiny`, `memory`, `widget` | `github-copilot/claude-haiku-5.5` | `CLAI_OMP_BULK_MODEL` |
+| `task` | `ollama/omp-coder:latest` | `CLAI_OMP_TASK_MODEL` |
 
-The hook also puts omp's local providers (`ollama`, `llama.cpp`,
-`lm-studio`, `apple`) in `disabledProviders` and removes every fallback
-chain to the gateway or to the local model. `retry.fallbackOn` is
-`usage-limit`, and no chain is left, so a Copilot usage limit is shown,
-not routed around.
+The hook keeps omp's other local providers (`llama.cpp`, `lm-studio`,
+`apple`) in `disabledProviders` and removes `ollama` from the list, so
+omp discovers the laptop's server. It also removes every fallback chain
+to the gateway or to the local model: the `task` role starts on ollama
+rather than falling back to it. `retry.fallbackOn` is `usage-limit`,
+and no chain is left, so a Copilot usage limit is shown, not routed
+around.
 
 **A listed model is not a served model.** `omp models github-copilot`
 prints Copilot's catalog, and Copilot refuses some of it to omp's
