@@ -40,7 +40,7 @@ file points there.
 - Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
 - Before `git worktree remove`, run `git -C <wt> clean -ndX`; ignored files die with the worktree.
 - A tool never writes its data under a checkout; a per-user data dir, never a gitignored folder.
-- One PR per repo per task: never stack or split work into several PRs in one repo.
+- One open PR per repo per session: everything the session does in a repo goes on that PR until it merges or closes; never a stacked or split PR.
 - Never commit a defect fix before its RED test; cut the Issue first.
 - Open the PR for pushed work without being asked.
 - Never queue a "task card"; out-of-scope work is a GitHub Issue.
@@ -307,12 +307,15 @@ machinery alone (workflows, Terraform, deploy scripts, Durable Object
 migrations): a dispatch runs the branch's own workflow and Terraform with the
 nonprod credentials.
 
-## One PR per repo per task
+## One open PR per repo per session
 
-A task gets exactly one PR in each repo it touches. Retrospectives, review
-fixes, follow-up docs and corrections go onto that PR's branch, not into a
-second PR, a stacked PR or a "docs-only companion". This overrides any
-skill that says to open a separate or stacked PR.
+A session has at most one open PR in each repo it touches. Everything the
+session does in that repo goes onto that PR's branch, however unrelated
+the tasks: a new ask, review fixes, the retrospective, follow-up docs and
+corrections. Open another PR in that repo only after the first has merged
+or closed, from a fresh branch off the default branch. Do not open a
+second PR beside an open one, a stacked PR or a "docs-only companion".
+This overrides any skill that says to open a separate or stacked PR.
 
 ## A fact you put in a subagent's prompt is a snapshot
 
@@ -516,8 +519,8 @@ times in tds-utils (2026-10-16, 2026-11-02, 2026-11-06).
 
 ## Pushed work finishes at an open PR
 
-When a task's work is pushed to a branch, open its PR -- or push onto the
-task's PR that is already open -- without being asked. An open question,
+When work is pushed to a branch, open its PR -- or push onto the PR the
+session already has open in that repo -- without being asked. An open question,
 an approval still owed, or a design not yet on main is a line in the PR
 body, not a reason to hold the PR back. Asking whether to open one is the
 interrogative prompt this file forbids. The harness default "do not create
