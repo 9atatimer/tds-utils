@@ -79,7 +79,7 @@ on:
         type: string
         required: true
       review_runs_on:
-        description: Runner labels for the review job only, as JSON; empty lets authorize plan it (CI_RUNS_ON_LONG for a large PR, else CI_RUNS_ON_DOCKER, else CI_RUNS_ON).
+        description: Runner labels for the review job only, as JSON; empty lets authorize plan it (CI_RUNS_ON_LONG for a large PR; else, when CI_RUNS_ON is set, CI_RUNS_ON_DOCKER; else CI_RUNS_ON; else GitHub-hosted).
         type: string
         required: false
         default: ''

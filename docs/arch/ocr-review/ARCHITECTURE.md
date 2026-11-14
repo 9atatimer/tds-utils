@@ -29,9 +29,13 @@ moves the workflow or an adopter's pin.
   reviewed, 0 findings. Three gateway requests, about 33 s of model time
   in all, including a cold model load (the gateway's `keep_alive` is
   2 m).
-- Where jobs run: every job `runs-on` the caller's `CI_RUNS_ON` variable
-  when set (the niners runner pool: Cloudflare Containers, a 10-minute
-  container ceiling), else `ubuntu-latest`.
+- Where jobs run: authorize and report `runs-on` the caller's `CI_RUNS_ON`
+  variable when set (the niners runner pool: Cloudflare Containers, a
+  10-minute container ceiling), else `ubuntu-latest`. The review job runs
+  where authorize plans it: the caller's `review_runs_on`; else the long
+  niner (`CI_RUNS_ON_LONG`) for a large PR; else, on the pool, the medium
+  niner (`CI_RUNS_ON_DOCKER`, 20 minutes); else `CI_RUNS_ON` or
+  `ubuntu-latest`.
 - Telemetry: the run record (job summary and artifact), the Actions logs,
   and `bin/ocr-review-stats` over the records. Nothing else.
 
@@ -196,11 +200,14 @@ Recorded here as fact; recording is not approval.
   unhandled EPIPE** that hides the child's own error; a clean review read
   as `unexpected` (Issue#449). `gitIn` now ignores EPIPE on the child's
   stdin and reports git's exit code and stderr.
-- **The pool's 10-minute ceiling shapes the timeouts.** The review job
-  gets 9 minutes; a cold model on a cold OS cache can spend most of it in
+- **The pool's 10-minute ceiling shaped the timeouts.** The review job
+  got 9 minutes; a cold model on a cold OS cache can spend most of it in
   the probe. The pilot's review took 65 s with a warm OS cache. A large PR
   outgrew it (misvtt PR#88, cancelled at 9 min 14 s), so since tds-utils
-  PR#780 a large PR runs on the long niner instead (Issue#776).
+  PR#780 a large PR runs on the long niner (Issue#776); and a small one did
+  too (misvtt PR#169, 7 files, twice), so since tds-utils PR#788 every
+  other review on the pool runs on the medium niner, 19 minutes
+  (Issue#787).
 - **A workflow default of 0 is "unset", not a value.** The threshold
   inputs default to 0 so a caller can omit them; read as a number, 0 made
   every PR large. `tier.mjs` takes a threshold or timeout only as a
