@@ -163,9 +163,11 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
   - `reviewed-nothing`: reviewable files existed and ocr reviewed none.
   - `timeout`: the review job reached its `timeout-minutes`; the detail
     names the limit and the PR's changed-file count. A large PR already
-    goes to the long niner when the owner has set `CI_RUNS_ON_LONG`; for
-    one below the thresholds, lower `long_review_files` or
-    `long_review_lines` in the caller, or split the PR.
+    goes to the long niner when the owner has set `CI_RUNS_ON_LONG`, and
+    every other PR to the 20-minute medium niner when `CI_RUNS_ON_DOCKER`
+    is set; if a PR below the thresholds still runs out, lower
+    `long_review_files` or `long_review_lines` in the caller, or split the
+    PR.
 - Trends across repos: `bin/ocr-review-stats` (read-only; `-p day|week|month`,
   `-d DAYS`, `-j`).
 
@@ -316,16 +318,14 @@ no cold model and the gateway applies its own retry policy):
 | any other 4xx | `model-not-found` |
 | 5xx, or no answer | `gateway-down` |
 
-The pool's 10-minute ceiling is the default limit on either backend
-(design Key Decisions, a review's length; Issue#478): a PR that does not
-finish in it is not reviewed, and the run fails at the job timeout with
-cause `timeout`, whose summary names the limit, the PR's changed-file
-count and the remedy (design Key Decisions, a timeout is a cause;
-Issue#631). A hosted model is far faster than the laptop,
-so it is the likelier backend to fit it. A repository can opt its review
-job alone into the pool's Docker class, which has a 20-minute ceiling, by
-passing two inputs in its caller (design Key Decisions, a review's length
-on opt-in, 2026-11-02):
+A review job that does not finish under its runner's ceiling is not
+reviewed: the run fails at the job timeout with cause `timeout`, whose
+summary names the limit, the PR's changed-file count and the remedy
+(design Key Decisions, a timeout is a cause; Issue#631). Which runner and
+which limit a review gets is planned by the authorize step (below). A
+caller can still name the review job's runner and timeout itself (design
+Key Decisions, a review's length on opt-in, 2026-11-02), which wins over
+the plan:
 
 ```yaml
     with:
@@ -333,12 +333,33 @@ on opt-in, 2026-11-02):
       review_timeout_minutes: 19
 ```
 
-Keep the timeout under the ceiling of the runner you name. Those reviews
-share the Docker class's cap of 4 instances with the jobs that need Docker.
+Keep the timeout under the ceiling of the runner you name.
+
+**Every review leaves the standard niner by itself** (design Key
+Decisions, every review off the standard niner, 2026-11-14; Issue#787).
+The gateway's model cannot finish even a small review in the standard
+niner's budget: [misvtt PR#169](https://github.com/9atatimer/misvtt/pull/169),
+7 files, timed out twice. So when the caller names no `review_runs_on`:
+
+| PR | Runner | Job timeout |
+|---|---|---|
+| 25 files or more, or more than 800 changed lines | `CI_RUNS_ON_LONG` (`cf-pool-long`, 2-hour ceiling) | 115 minutes |
+| any other, in a repository on the pool (`CI_RUNS_ON` set) | `CI_RUNS_ON_DOCKER` (`cf-pool-docker`, 20-minute ceiling) | 19 minutes |
+| any other | `CI_RUNS_ON`, else GitHub-hosted | the caller's `review_timeout_minutes` (9 on the pool, 40 hosted) |
+
+A repository off the pool stays GitHub-hosted even where
+`CI_RUNS_ON_DOCKER` is set (Nine-At-A-Time-Media sets it at org level):
+its caller's 40 minutes outlast the medium niner's 19. The medium niner is
+the Docker class: its reviews share its cap of 4
+instances with the jobs that need Docker. The caller's
+`review_timeout_minutes` (9 on the pool) applies only on a runner the
+caller names or on `CI_RUNS_ON`, never on the planned medium or long niner.
+The repository variables are tds-internal's (`ops/terraform/ci-runner-pool-github`,
+or `gh variable set` by hand until that root is applied).
 
 **A large PR goes to the long niner by itself** (design Key Decisions, a
-large PR on the long niner, 2026-11-12; Issue#776). A PR that changes more
-than 25 files or more than 800 lines runs its review job on the owner's
+large PR on the long niner, 2026-11-12; Issue#776). A PR that changes 25
+files or more, or more than 800 lines, runs its review job on the owner's
 `CI_RUNS_ON_LONG` (`cf-pool-long`, a 2-hour ceiling, tds-internal PR#342)
 with a 115-minute timeout, when that variable is set and the caller names
 no `review_runs_on`. A caller can move the thresholds:
@@ -349,18 +370,22 @@ no `review_runs_on`. A caller can move the thresholds:
       long_review_lines: 1500
 ```
 
-The authorize step logs the plan (`plan: long tier, 115 minutes`). Without
-`CI_RUNS_ON_LONG` a large PR stays on `CI_RUNS_ON` with the caller's
-timeout, and the log line says so. The long niner's cap is 2 instances.
+The authorize step logs the plan (`plan: long tier, 115 minutes`, `plan:
+medium tier, 19 minutes`). Without `CI_RUNS_ON_LONG` a large PR is planned
+like any other PR: the medium niner in a repository on the pool with
+`CI_RUNS_ON_DOCKER` set, else `CI_RUNS_ON`, else GitHub-hosted, each with
+the caller's timeout except the medium niner's 19; the log line says so. The long niner's cap is 2 instances.
 The Review step has its own timeout, 2 minutes under the job's, so the
 verdict and the uploads still run when the review runs out of time, and
 the action's `review_task_timeout` never exceeds that step.
 
 The caller template passes both inputs from the caller repository's
 variables. With neither `OCR_REVIEW_RUNS_ON` nor `OCR_REVIEW_TIMEOUT_MINUTES`
-set, a repository on the pool (`CI_RUNS_ON` set) keeps 9 minutes, and one on
-GitHub-hosted runners, which have no 10-minute ceiling, gets 40. Set the two
-variables to the values above to use the Docker class instead.
+set, the caller passes 9 minutes on the pool (`CI_RUNS_ON` set) and 40 on
+GitHub-hosted runners. On the pool that 9 applies only where the plan falls
+back to `CI_RUNS_ON` (no `CI_RUNS_ON_DOCKER`); the medium and long niners
+take their own 19 and 115. Set the two variables only to send a repository's
+reviews somewhere the plan would not.
 
 Measured on the first Cloudflare run (2026-10-14, run 38539937733, DeepSeek
 V4 Pro with `reasoning_effort` none): 7 code files, ocr's own elapsed time
@@ -482,9 +507,10 @@ settings as OCR on Demand, with nothing posted anywhere.
   more than a handful of files gets no settled review from OCR; the
   self-review ledger is the review besides the owner's. Re-running costs
   the runner the same 40 minutes (Issue#677).
-- **The probe and the review share the review job's timeout**: 9 minutes
-  by default, under the pool's 10-minute container ceiling, or what a
-  caller opts into with `review_timeout_minutes`. The probe starts no
+- **The probe and the review share the review job's timeout**: 19
+  minutes on the medium niner, 115 on the long one, and 9 by default on
+  `CI_RUNS_ON` when neither is set, or what a caller opts into with
+  `review_runs_on` and `review_timeout_minutes`. The probe starts no
   attempt after 6 minutes, but the last one can run to the gateway's 90 s
   deadline, so a cold model that never answers costs about 7.5 minutes. The
   pilot's green run took 65 s for the whole review job, with the model's

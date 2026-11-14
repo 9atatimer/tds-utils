@@ -29,9 +29,13 @@ moves the workflow or an adopter's pin.
   reviewed, 0 findings. Three gateway requests, about 33 s of model time
   in all, including a cold model load (the gateway's `keep_alive` is
   2 m).
-- Where jobs run: every job `runs-on` the caller's `CI_RUNS_ON` variable
-  when set (the niners runner pool: Cloudflare Containers, a 10-minute
-  container ceiling), else `ubuntu-latest`.
+- Where jobs run: authorize and report `runs-on` the caller's `CI_RUNS_ON`
+  variable when set (the niners runner pool: Cloudflare Containers, a
+  10-minute container ceiling), else `ubuntu-latest`. The review job runs
+  where authorize plans it: the caller's `review_runs_on`; else the long
+  niner (`CI_RUNS_ON_LONG`) for a large PR; else, on the pool, the medium
+  niner (`CI_RUNS_ON_DOCKER`, 20 minutes); else `CI_RUNS_ON` or
+  `ubuntu-latest`.
 - Telemetry: the run record (job summary and artifact), the Actions logs,
   and `bin/ocr-review-stats` over the records. Nothing else.
 
@@ -73,7 +77,7 @@ Caller -> reusable workflow (workflow_call)
 | Job | Timeout | Steps |
 |---|---|---|
 | `authorize` | 3 min | job `if:` prefilter (not an `issue_comment`, or the body starts with `/ocr`, case-insensitively); Fetch the tools; Set up Node; Authorize (exact `/ocr` prefix, OWNER/MEMBER/COLLABORATOR, PR open, head repo = base repo); Acknowledge the comment (`eyes`, comment trigger only, `continue-on-error`) |
-| `review` | planned by the Authorize step (`lib/ocr-review/tier.mjs`, Issue#776; logged as `plan: <tier> tier, <N> minutes`): the caller's `review_runs_on` with the caller's `review_timeout_minutes` when given; else a PR changing more than 25 files or 800 lines (`long_review_files`, `long_review_lines`) on `CI_RUNS_ON_LONG`, the long niner (`cf-pool-long`, 2-hour ceiling), for 115 minutes; else `CI_RUNS_ON` with the caller's timeout (default 9; this repo's caller: 9 on the pool, 40 on GitHub-hosted runners). The Review step has its own timeout 2 minutes under the job's, and `review_task_timeout` is the lesser of 15 and that step timeout | needs `authorize` approve. Fetch the tools; Set up Node; Stage the tools (to `$RUNNER_TEMP`, since the upstream action clears the workspace); Check the host tools; Install the 1Password CLI (only when no `op` on PATH); Credentials (the one step with the secret; each value masked as read); Probe; Review (upstream action); Verdict; Upload the ocr result; Upload the review state |
+| `review` | planned by the Authorize step (`lib/ocr-review/tier.mjs`, Issue#776; logged as `plan: <tier> tier, <N> minutes`): the caller's `review_runs_on` with the caller's `review_timeout_minutes` when given; else a PR changing 25 files or more, or more than 800 lines (`long_review_files`, `long_review_lines`), on `CI_RUNS_ON_LONG`, the long niner (`cf-pool-long`, 2-hour ceiling), for 115 minutes; else, when `CI_RUNS_ON` is set, `CI_RUNS_ON_DOCKER`, the medium niner (`cf-pool-docker`, 20-minute ceiling), for 19 minutes (Issue#787); else `CI_RUNS_ON` with the caller's timeout (default 9; this repo's caller: 9 on the pool, 40 on GitHub-hosted runners). The Review step has its own timeout 2 minutes under the job's, and `review_task_timeout` is the lesser of 15 and that step timeout | needs `authorize` approve. Fetch the tools; Set up Node; Stage the tools (to `$RUNNER_TEMP`, since the upstream action clears the workspace); Check the host tools; Install the 1Password CLI (only when no `op` on PATH); Credentials (the one step with the secret; each value masked as read); Probe; Review (upstream action); Verdict; Upload the ocr result; Upload the review state |
 | `report` | 5 min | `if: always()` unless authorize was skipped or decided skip. Note a cancelled run; Fetch the tools; Set up Node; Fetch the review state; Build the run record; Upload the run record; Post the summary comment; React with the outcome (`+1` / `-1`, removes its own `eyes`, `continue-on-error`) |
 
 | Value | Setting | Where |
@@ -196,11 +200,14 @@ Recorded here as fact; recording is not approval.
   unhandled EPIPE** that hides the child's own error; a clean review read
   as `unexpected` (Issue#449). `gitIn` now ignores EPIPE on the child's
   stdin and reports git's exit code and stderr.
-- **The pool's 10-minute ceiling shapes the timeouts.** The review job
-  gets 9 minutes; a cold model on a cold OS cache can spend most of it in
+- **The pool's 10-minute ceiling shaped the timeouts.** The review job
+  got 9 minutes; a cold model on a cold OS cache can spend most of it in
   the probe. The pilot's review took 65 s with a warm OS cache. A large PR
   outgrew it (misvtt PR#88, cancelled at 9 min 14 s), so since tds-utils
-  PR#780 a large PR runs on the long niner instead (Issue#776).
+  PR#780 a large PR runs on the long niner (Issue#776); and a small one did
+  too (misvtt PR#169, 7 files, twice), so since tds-utils PR#788 every
+  other review on the pool runs on the medium niner, 19 minutes
+  (Issue#787).
 - **A workflow default of 0 is "unset", not a value.** The threshold
   inputs default to 0 so a caller can omit them; read as a number, 0 made
   every PR large. `tier.mjs` takes a threshold or timeout only as a

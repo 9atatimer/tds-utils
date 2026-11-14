@@ -154,10 +154,11 @@ test('reusable: the review job runs where the authorize step planned it, else Gi
   assert.ok(jobBlock(REUSABLE, 'review').includes(REVIEW_RUNS_ON));
 });
 
-test('reusable: the authorize step hands the planner its inputs: both runner variables, the caller runner and timeout, the thresholds', () => {
+test('reusable: the authorize step hands the planner its inputs: the three runner variables, the caller runner and timeout, the thresholds', () => {
   const step = jobBlock(REUSABLE, 'authorize');
   for (const [name, value] of [
     ['CI_RUNS_ON', 'vars.CI_RUNS_ON'],
+    ['CI_RUNS_ON_DOCKER', 'vars.CI_RUNS_ON_DOCKER'],
     ['CI_RUNS_ON_LONG', 'vars.CI_RUNS_ON_LONG'],
     ['REVIEW_RUNS_ON', 'inputs.review_runs_on'],
     ['REVIEW_TIMEOUT_MINUTES', 'inputs.review_timeout_minutes'],
