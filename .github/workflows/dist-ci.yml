@@ -182,6 +182,12 @@ jobs:
       - name: Smoketest clai.d/AGENT.global.md invariants
         run: /bin/bash test/smoketest_agent_global.sh
 
+      # Hermetic: a fake HOME, a fake repo and synthetic Codex logs.
+      - name: Smoketest bin/agent-load
+        run: /bin/bash test/smoketest_agent_load.sh
+      - name: Smoketest bin/codex-session-cost
+        run: /bin/bash test/smoketest_codex_session_cost.sh
+
       # Hermetic: the alias file sourced under bash with a fake ssh on PATH.
       - name: Smoketest macos/dot.alias
         run: /bin/bash test/smoketest_dot_alias.sh
