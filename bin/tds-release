@@ -13,7 +13,9 @@
 # $HOME's dotfile symlinks resolve through the `release` worktree, not the
 # primary checkout, so what this script does IS the install step for this
 # machine: the moment `release` moves, the new config is what every new shell,
-# editor, and agent session loads. Nothing else has to run.
+# editor, and agent session loads. After the public unit moves it also runs
+# the released bin/agent-instructions, which builds each agent's instruction
+# file from that commit.
 #
 # It releases RELEASE UNITS, not subsystems. A unit is a repo with a `release`
 # branch, a worktree checked out on it, and a NO.RELEASE sentry; the same flow
@@ -388,6 +390,17 @@ plan_unit() {
 }
 
 # apply_plan <plan-line> -- advance one unit that already passed every check.
+# rebuild_agent_instructions <release-worktree> -- run the RELEASED
+# bin/agent-instructions, so each agent's instruction file is built from the
+# commit that just went live. The release has already moved, so a failure
+# here is reported and does not fail the run: `agent-instructions` can be
+# run again by hand.
+rebuild_agent_instructions() {
+    local tool="$1/bin/agent-instructions"
+    [ -x "${tool}" ] || return 0
+    "${tool}" || note "public: bin/agent-instructions failed; run it again: ${tool}"
+}
+
 apply_plan() {
     local unit wt release_sha target_sha target
     IFS=$'\t' read -r unit wt release_sha target_sha target <<EOT
@@ -400,6 +413,7 @@ EOT
     advance_release "${wt}" "${release_sha}" "${target_sha}"
     note "${unit}: released to $(describe "${wt}" HEAD)"
     push_release "${wt}" "${force}"
+    [ "${unit}" != public ] || rebuild_agent_instructions "${wt}"
 }
 
 # run_units -- CHECK every selected unit, then advance them. Two passes, not
