@@ -119,6 +119,22 @@ test('authorize: a small PR keeps the standard runner and the caller timeout', a
   assert.equal(step.outputs.review_task_timeout_minutes, '7');
 });
 
+// Issue#787: with CI_RUNS_ON_DOCKER set, a small PR's review runs on the
+// medium niner (20-minute ceiling) instead of the standard one.
+const MEDIUM_RUNS_ON = '["self-hosted","linux","x64","cf-pool-docker"]';
+
+test('authorize: with CI_RUNS_ON_DOCKER, a small PR is planned on the medium niner, 19 minutes', async () => {
+  const step = fakeStep();
+  const body = { ...PR_BODY, additions: 10, deletions: 2 };
+  const env = authorizeEnv({ CI_RUNS_ON: STD_RUNS_ON, CI_RUNS_ON_DOCKER: MEDIUM_RUNS_ON, CI_RUNS_ON_LONG: LONG_RUNS_ON, REVIEW_TIMEOUT_MINUTES: '9', LONG_REVIEW_FILES: '0', LONG_REVIEW_LINES: '0' });
+  await runAuthorize({ env, fetch: fakeFetch(() => json(200, body)), step, now: () => 'x' });
+  assert.equal(step.outputs.tier, 'medium');
+  assert.equal(step.outputs.review_runs_on, MEDIUM_RUNS_ON);
+  assert.equal(step.outputs.review_timeout_minutes, '19');
+  assert.equal(step.outputs.review_step_timeout_minutes, '17');
+  assert.equal(step.outputs.review_task_timeout_minutes, '15');
+});
+
 test('authorize: a skipped comment still outputs a runnable plan (the review job never reads it)', async () => {
   const step = fakeStep();
   await runAuthorize({ env: authorizeEnv({ COMMENT_BODY: 'nice' }), fetch: fakeFetch(() => json(200, PR_BODY)), step, now: () => 'x' });
