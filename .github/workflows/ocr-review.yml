@@ -83,10 +83,20 @@ on:
         required: false
         default: ''
       review_timeout_minutes:
-        description: The review job's timeout; keep it under the ceiling of the runner review_runs_on names (9 under the standard pool's 10 minutes, 19 under the Docker class's 20).
+        description: The review job's timeout; keep it under the ceiling of the runner review_runs_on names (9 under the standard pool's 10 minutes, 19 under the Docker class's 20). A large PR on the long niner gets 115 instead, unless review_runs_on is set.
         type: number
         required: false
         default: 9
+      long_review_files:
+        description: A PR changing more files than this is reviewed on the long niner (the owner's CI_RUNS_ON_LONG); 0 uses the default, 25.
+        type: number
+        required: false
+        default: 0
+      long_review_lines:
+        description: A PR changing more lines than this is reviewed on the long niner; 0 uses the default, 800.
+        type: number
+        required: false
+        default: 0
     secrets:
       OLLAMA_GATEWAY_OP_SA_TOKEN:
         description: The 1Password service-account token that reads the gateway caller item.
@@ -118,6 +128,13 @@ jobs:
       base_ref: ${{ steps.authorize.outputs.base_ref }}
       started_at: ${{ steps.authorize.outputs.started_at }}
       changed_files: ${{ steps.authorize.outputs.changed_files }}
+      changed_lines: ${{ steps.authorize.outputs.changed_lines }}
+      tier: ${{ steps.authorize.outputs.tier }}
+      tier_note: ${{ steps.authorize.outputs.tier_note }}
+      review_runs_on: ${{ steps.authorize.outputs.review_runs_on }}
+      review_timeout_minutes: ${{ steps.authorize.outputs.review_timeout_minutes }}
+      review_step_timeout_minutes: ${{ steps.authorize.outputs.review_step_timeout_minutes }}
+      review_task_timeout_minutes: ${{ steps.authorize.outputs.review_task_timeout_minutes }}
       tools: ${{ steps.tools.outcome }}
       node: ${{ steps.node.outcome }}
       authorize: ${{ steps.authorize.outcome }}
@@ -151,6 +168,14 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
           PR: ${{ inputs.pr }}
+          # The review job's plan (Issue#776): a large PR goes to the long
+          # niner when the owner has set CI_RUNS_ON_LONG.
+          CI_RUNS_ON: ${{ vars.CI_RUNS_ON }}
+          CI_RUNS_ON_LONG: ${{ vars.CI_RUNS_ON_LONG }}
+          REVIEW_RUNS_ON: ${{ inputs.review_runs_on }}
+          REVIEW_TIMEOUT_MINUTES: ${{ inputs.review_timeout_minutes }}
+          LONG_REVIEW_FILES: ${{ inputs.long_review_files }}
+          LONG_REVIEW_LINES: ${{ inputs.long_review_lines }}
         run: node .ocr-review-tools/bin/ocr-review authorize
 
       # Eyes on an approved /ocr comment, before the review job starts; the
@@ -171,12 +196,14 @@ jobs:
     name: review
     needs: [authorize]
     if: needs.authorize.outputs.decision == 'approve'
-    # The caller may give this job alone a longer-ceiling runner and timeout
-    # (design Key Decisions, a review's length on opt-in). By default it runs
-    # on CI_RUNS_ON with 9 minutes, under the standard pool's 10-minute
-    # ceiling; the probe alone may retry a cold model for 6 of them.
-    runs-on: ${{ fromJSON(inputs.review_runs_on || vars.CI_RUNS_ON || '"ubuntu-latest"') }}
-    timeout-minutes: ${{ inputs.review_timeout_minutes }}
+    # The authorize step plans this job's runner and timeout
+    # (lib/ocr-review/tier.mjs, Issue#776): the caller's review_runs_on and
+    # timeout when given; else a large PR on the long niner
+    # (CI_RUNS_ON_LONG, 115 minutes under its 2-hour ceiling); else
+    # CI_RUNS_ON with the caller's timeout, 9 minutes by default, under the
+    # standard pool's 10-minute ceiling.
+    runs-on: ${{ fromJSON(needs.authorize.outputs.review_runs_on || '"ubuntu-latest"') }}
+    timeout-minutes: ${{ fromJSON(needs.authorize.outputs.review_timeout_minutes || '9') }}
     env:
       # ocr's npm launcher otherwise checks the registry and upgrades itself,
       # defeating the exact pin; telemetry and raw request capture are off
@@ -304,10 +331,15 @@ jobs:
       # it cannot be turned off at this pin, and it is where the findings
       # that failed to post are named (Key Decisions, option A). Sticky, so
       # it is updated in place rather than added each run.
+      # Its own timeout, under the job's, so the verdict and uploads still
+      # run when the review runs out of time; its per-task budget never
+      # exceeds it (the action's own default, 15, did; Issue#776).
       - name: Review
         id: ocr
+        timeout-minutes: ${{ fromJSON(needs.authorize.outputs.review_step_timeout_minutes || '7') }}
         uses: alibaba/open-code-review@fabbdb296b0d97e2140ada8d54ca7d6d6d1d7ad4 # v1.12.13
         with:
+          review_task_timeout: ${{ needs.authorize.outputs.review_task_timeout_minutes || '7' }}
           llm_url: ${{ steps.creds.outputs.api_base }}
           llm_auth_token: ${{ steps.creds.outputs.auth_token }}
           llm_model: ${{ steps.creds.outputs.model }}
@@ -417,7 +449,7 @@ jobs:
           AUTHORIZE_OUTPUTS: ${{ toJSON(needs.authorize.outputs) }}
           REVIEW_RESULT: ${{ needs.review.result }}
           REVIEW_OUTPUTS: ${{ toJSON(needs.review.outputs) }}
-          REVIEW_TIMEOUT_MINUTES: ${{ inputs.review_timeout_minutes }}
+          REVIEW_TIMEOUT_MINUTES: ${{ needs.authorize.outputs.review_timeout_minutes || inputs.review_timeout_minutes }}
           OCR_VERSION: '1.12.13'
           STATE_PATH: ${{ runner.temp }}/ocr-review-state/state.json
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

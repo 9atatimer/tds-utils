@@ -27,6 +27,7 @@ run_suites() {
         "${REPO_ROOT}/test/ocr_review_git.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_workflow.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_stats.test.mjs" \
+        "${REPO_ROOT}/test/ocr_review_tier.test.mjs" \
         "${REPO_ROOT}/test/ocr_bakeoff.test.mjs"
 }
 
