@@ -65,16 +65,31 @@ row() { grep -E "^\| $2 \|" <<<"$1" || true; }
 
 # Given a repo and agents under budget, When agent-load runs from inside the
 # repo with no flags (the production invocation), Then each agent's row shows
-# its global and repo bytes and total, and the exit status is 0.
+# its global file and the file that link resolves to, the global and repo
+# bytes and total, and the exit status is 0.
 test_reports_each_agent_and_passes_under_budget() {
     TESTS_RUN=$((TESTS_RUN + 1))
     local out rc=0
     out=$(cd "${REPO}" && HOME="${FAKE_HOME}" "${TOOL}") || rc=$?
     [[ "${rc}" -eq 0 ]] || fail "under budget: exit ${rc}, want 0: ${out}"
-    grep -qF '| claude | ~/.claude/CLAUDE.md | 1000 | CLAUDE.md | 300 | 1300 | 2 | 15 | ok |' <<<"$(row "${out}" claude)" \
+    grep -qF "| claude | ~/.claude/CLAUDE.md -> ${WORK}/global.claude.md | 1000 | CLAUDE.md | 300 | 1300 | 2 | 15 | ok |" <<<"$(row "${out}" claude)" \
         || fail "claude row: $(row "${out}" claude)"
-    grep -qF '| codex | ~/.codex/AGENTS.md | 400 | AGENTS.md | 300 | 700 | 1 | 10 | ok |' <<<"$(row "${out}" codex)" \
+    grep -qF "| codex | ~/.codex/AGENTS.md -> ${WORK}/global.codex.md | 400 | AGENTS.md | 300 | 700 | 1 | 10 | ok |" <<<"$(row "${out}" codex)" \
         || fail "codex row: $(row "${out}" codex)"
+}
+
+# Given a repo and global files under HOME, When agent-load runs, Then the
+# header and the rows show those paths from ~ and never the home directory,
+# so the output can go in a public PR body.
+test_paths_under_home_are_shown_from_tilde() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local out real_home
+    out=$(HOME="${WORK}" "${TOOL}" -r "${REPO}" -a claude) || true
+    real_home=$(cd "${WORK}" && pwd -P)
+    grep -qF '**Agent load: `~/repo`**' <<<"${out}" || fail "header not from ~: ${out}"
+    if grep -qF -e "${WORK}" -e "${real_home}" <<<"${out}"; then
+        fail "home directory in output: ${out}"
+    fi
 }
 
 # Given an agent with no global file, When agent-load runs, Then its row
@@ -124,6 +139,7 @@ main() {
     make_world
     test_reports_each_agent_and_passes_under_budget
     test_missing_global_file_counts_zero
+    test_paths_under_home_are_shown_from_tilde
     test_over_budget_exits_one
     test_one_agent_only
     test_unknown_agent_is_usage_error

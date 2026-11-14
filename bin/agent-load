@@ -4,8 +4,9 @@
 # For each agent (claude, codex, opencode, omp) it prints one markdown table
 # row: the global instruction file the agent reads from $HOME and its bytes,
 # the repo instruction file and its bytes, the total, the number of skills in
-# the agent's skills directory and the bytes of their descriptions (the list
-# every session carries), and ok or over against a byte budget.
+# the agent's skills directory in the repo and the bytes of their descriptions
+# (the list every session carries), and ok or over against a byte budget.
+# Paths under $HOME print from "~".
 #
 # Usage: agent-load [-r repo] [-b budget-bytes] [-a agent]
 #   -r  repo root (default: the git top level of the current directory)
@@ -99,6 +100,34 @@ shown_path() {
     fi
 }
 
+# from_home <path> -- the path with a leading $HOME (as given, or as the
+# physical path git reports) written as "~", so output never names the home
+# directory. The output goes in PR bodies of a public repo.
+from_home() {
+    local path=$1 home real_home
+    home=${HOME%/}
+    real_home=$(cd "${home}" 2>/dev/null && pwd -P || echo "${home}")
+    case "${path}" in
+        "${home}" | "${real_home}") echo "~" ;;
+        "${home}"/*) echo "~${path#"${home}"}" ;;
+        "${real_home}"/*) echo "~${path#"${real_home}"}" ;;
+        *) echo "${path}" ;;
+    esac
+}
+
+# global_label <rel> <path> -- "~/<rel>", plus " -> <target>" when it is a
+# symlink, so the row names the file whose bytes were counted.
+global_label() {
+    local rel=$1 path=$2 label
+    # The "~/" is a display label, not a path to expand.
+    # shellcheck disable=SC2088
+    label="~/${rel}"
+    if [[ -L "${path}" && -f "${path}" ]]; then
+        label="${label} -> $(from_home "$(readlink "${path}")")"
+    fi
+    shown_path "${label}" "${path}"
+}
+
 # repo_root <dir> -- the git top level of a directory, or the directory.
 repo_root() {
     git -C "$1" rev-parse --show-toplevel 2>/dev/null || (cd "$1" && pwd)
@@ -122,9 +151,7 @@ agent_row() {
     read -r count desc <<<"$(skills_summary "${skills_dir}")"
     verdict=ok
     [[ "${total}" -le "${budget}" ]] || verdict=over
-    # The "~/" is a display label, not a path to expand.
-    # shellcheck disable=SC2088
-    echo "| ${agent} | $(shown_path "~/${global_rel}" "${global_path}") | ${gbytes} | $(shown_path "${repo_file}" "${repo_path}") | ${rbytes} | ${total} | ${count} | ${desc} | ${verdict} |"
+    echo "| ${agent} | $(global_label "${global_rel}" "${global_path}") | ${gbytes} | $(shown_path "${repo_file}" "${repo_path}") | ${rbytes} | ${total} | ${count} | ${desc} | ${verdict} |"
     [[ "${verdict}" == ok ]]
 }
 
@@ -132,9 +159,9 @@ render_table() {
     local repo=$1 budget=$2
     shift 2
     local agent status=0
-    echo "**Agent load: \`${repo}\`** (budget ${budget} bytes)"
+    echo "**Agent load: \`$(from_home "${repo}")\`** (budget ${budget} bytes)"
     echo
-    echo "| agent | global file | global bytes | repo file | repo bytes | total | skills | skill description bytes | budget |"
+    echo "| agent | global file | global bytes | repo file | repo bytes | total | repo skills | skill description bytes | budget |"
     echo "|-------|-------------|-------------:|-----------|-----------:|------:|-------:|------------------------:|--------|"
     for agent in "$@"; do
         agent_row "${agent}" "${repo}" "${budget}" || status=1
