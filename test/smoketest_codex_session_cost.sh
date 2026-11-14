@@ -56,6 +56,10 @@ head = "# AGENTS.md instructions for " + cwd + "\n"
 rows = [{"type": "session_meta", "payload": {"id": "s1", "cwd": cwd}}]
 if kind == "judge":
     rows.append(msg("developer", "You are judging one planned coding-agent action."))
+if kind == "hostile":
+    rows[0]["payload"]["cwd"] = cwd + "\x1b]0;t\x07"
+    rows += [item({"type": "custom_tool_call", "call_id": "c9", "name": "exec",
+                   "input": "cat skills/a\x1b[2Jb/SKILL.md"}), out("c9", 1)]
 rows += [
     msg("developer", "<skills_instructions>" + "y" * 479),
     msg("user", head + "x" * (1000 - len(head))),
@@ -80,7 +84,8 @@ PY
 # Given a main session's rollout log, When codex-session-cost reads it (the
 # production invocation: the script by path, the log by path), Then it
 # reports the kind, the AGENTS block and skills list sizes, the tool calls and
-# their output, each skill's call count with repeats marked, and the token
+# their output, each skill's call count and the output of those calls with
+# repeats marked, and the token
 # totals from the last count.
 test_reports_a_main_session() {
     TESTS_RUN=$((TESTS_RUN + 1))
@@ -94,8 +99,8 @@ test_reports_a_main_session() {
         'skills list: 500 chars' \
         'tool calls: 3, output 5100 chars' \
         'skill calls: 2 calls name a SKILL.md, output 5000 chars' \
-        'skill design: 2 calls (repeat)' \
-        'skill markdown: 1 call' \
+        'skill design: 2 calls, 5000 chars (repeat)' \
+        'skill markdown: 1 call, 3000 chars' \
         'tokens: input 1000, cached 900, uncached 100, output 50'; do
         grep -qxF "${want}" <<<"${out}" || fail "main session: missing '${want}' in: ${out}"
     done
@@ -109,6 +114,29 @@ test_reports_a_judge_session() {
     write_rollout "${log}" /w/repo judge
     out=$("${TOOL}" "${log}") || fail "judge session: non-zero exit"
     grep -qxF 'kind: auto-review' <<<"${out}" || fail "judge session: ${out}"
+}
+
+# Given a session started under HOME, When it is read, Then the cwd prints
+# from ~, so the report can go in a public PR body.
+test_cwd_under_home_prints_from_tilde() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local log="${WORK}/home.jsonl" out
+    write_rollout "${log}" /w/repo main
+    out=$(HOME=/w "${TOOL}" "${log}") || fail "home cwd: non-zero exit"
+    grep -qxF 'cwd: ~/repo' <<<"${out}" || fail "home cwd: ${out}"
+}
+
+# Given a log whose cwd and a skill path carry terminal escape sequences,
+# When it is read, Then no escape character reaches the output.
+test_control_characters_never_reach_the_terminal() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local log="${WORK}/hostile.jsonl" out
+    write_rollout "${log}" /w/repo hostile
+    out=$("${TOOL}" "${log}") || fail "hostile log: non-zero exit"
+    if LC_ALL=C grep -q "$(printf '\033')" <<<"${out}"; then
+        fail "escape character in output"
+    fi
+    grep -qF 'skill a?[2Jb: 1 call' <<<"${out}" || fail "hostile skill name not shown: ${out}"
 }
 
 # Given two logs under CODEX_HOME, When --latest runs with and without
@@ -143,6 +171,8 @@ main() {
     WORK=$(mktemp -d)
     test_reports_a_main_session
     test_reports_a_judge_session
+    test_cwd_under_home_prints_from_tilde
+    test_control_characters_never_reach_the_terminal
     test_latest_picks_newest_log_for_cwd
     test_missing_log_is_usage_error
     if [[ "${TESTS_FAILED}" -gt 0 ]]; then

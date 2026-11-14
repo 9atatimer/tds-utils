@@ -8,7 +8,10 @@ $CODEX_HOME/sessions, default ~/.codex/sessions) and prints:
 - the size of the AGENTS block and of the skills list Codex sent first
 - the tool calls and the characters of output they returned
 - each skill whose SKILL.md a tool call named (a read, or a write), with
-  the number of calls
+  the number of calls and the characters of output those calls returned
+
+Paths under $HOME print from "~", and control characters print as "?",
+so the report can go in a public PR body and cannot drive the terminal.
 - the token totals from the last token count in the log
 
 Usage:
@@ -45,6 +48,8 @@ OUTPUT_TYPES = {
 # A path to a skill's SKILL.md: ".../skills/<name>/SKILL.md", possibly
 # with a level between (".../skills/.system/<name>/SKILL.md").
 SKILL_PATH = re.compile(r"skills/(?:[^\s'\"/]+/)?([^\s'\"/]+)/SKILL\.md")
+# C0 controls, DEL and C1 controls: what a terminal acts on.
+CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 # --- Domain values ---
@@ -77,6 +82,7 @@ class SessionCost:
     skill_read_calls: int = 0
     skill_read_output_chars: int = 0
     skill_reads: Counter[str] = field(default_factory=Counter)
+    skill_output: Counter[str] = field(default_factory=Counter)
     tokens: Tokens = field(default_factory=Tokens)
 
 
@@ -99,6 +105,20 @@ def as_dict(value: object) -> dict[str, object]:
 def as_int(value: object) -> int:
     """The value when it is an integer, else 0."""
     return value if isinstance(value, int) else 0
+
+
+def printable(text: str) -> str:
+    """The text with every control character replaced by "?"."""
+    return CONTROL_CHARS.sub("?", text)
+
+
+def from_home(path: str, *, homes: list[str]) -> str:
+    """The path with a leading home directory written as "~"."""
+    for home in homes:
+        home = home.rstrip("/")
+        if home and (path == home or path.startswith(home + "/")):
+            return "~" + path[len(home) :]
+    return path
 
 
 def message_texts(payload: dict[str, object]) -> list[str]:
@@ -182,20 +202,23 @@ def add_record(
     elif kind in OUTPUT_TYPES:
         chars = output_chars(payload)
         cost.tool_output_chars += chars
-        if is_skill_read(calls.get(str(payload.get("call_id")), "")):
+        text = calls.get(str(payload.get("call_id")), "")
+        if is_skill_read(text):
             cost.skill_read_output_chars += chars
+            for name in skills_named(text):
+                cost.skill_output[name] += chars
     elif kind == "token_count":
         tokens = tokens_from(payload)
         if tokens is not None:
             cost.tokens = tokens
 
 
-def render(cost: SessionCost, *, name: str) -> list[str]:
-    """The report, one line per fact."""
+def render(cost: SessionCost, *, name: str, homes: list[str]) -> list[str]:
+    """The report, one line per fact. `homes` are the spellings of $HOME."""
     lines = [
-        f"session: {name}",
+        f"session: {printable(name)}",
         f"kind: {cost.kind}",
-        f"cwd: {cost.cwd}",
+        f"cwd: {printable(from_home(cost.cwd, homes=homes))}",
         f"agents block: {cost.agents_chars} chars",
         f"skills list: {cost.skills_list_chars} chars",
         f"tool calls: {cost.tool_calls}, output {cost.tool_output_chars} chars",
@@ -207,7 +230,8 @@ def render(cost: SessionCost, *, name: str) -> list[str]:
     ):
         noun = "call" if count == 1 else "calls"
         repeat = " (repeat)" if count > 1 else ""
-        lines.append(f"skill {skill}: {count} {noun}{repeat}")
+        chars = cost.skill_output[skill]
+        lines.append(f"skill {printable(skill)}: {count} {noun}, {chars} chars{repeat}")
     t = cost.tokens
     lines.append(
         f"tokens: input {t.input}, cached {t.cached},"
@@ -259,6 +283,12 @@ def latest_log(sessions: Path, *, cwd: str | None) -> Path | None:
 # --- Entry point ---
 
 
+def home_spellings() -> list[str]:
+    """$HOME as set, and as its resolved path."""
+    home = os.environ.get("HOME") or str(Path.home())
+    return [home, os.path.realpath(home)]
+
+
 def sessions_dir() -> Path:
     """$CODEX_HOME/sessions, defaulting CODEX_HOME to ~/.codex."""
     home = os.environ.get("CODEX_HOME") or str(Path.home() / ".codex")
@@ -295,7 +325,8 @@ def main(argv: list[str]) -> int:
         print(f"codex-session-cost: no such log: {log}", file=sys.stderr)
         return 2
 
-    print("\n".join(render(session_cost(log), name=log.name)))
+    report = render(session_cost(log), name=log.name, homes=home_spellings())
+    print("\n".join(report))
     return 0
 
 
