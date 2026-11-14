@@ -73,7 +73,7 @@ Caller -> reusable workflow (workflow_call)
 | Job | Timeout | Steps |
 |---|---|---|
 | `authorize` | 3 min | job `if:` prefilter (not an `issue_comment`, or the body starts with `/ocr`, case-insensitively); Fetch the tools; Set up Node; Authorize (exact `/ocr` prefix, OWNER/MEMBER/COLLABORATOR, PR open, head repo = base repo); Acknowledge the comment (`eyes`, comment trigger only, `continue-on-error`) |
-| `review` | the caller's `review_timeout_minutes` (default 9; this repo's caller: 9 on the pool, 40 on GitHub-hosted runners) on the caller's `review_runs_on` (default `CI_RUNS_ON`) | needs `authorize` approve. Fetch the tools; Set up Node; Stage the tools (to `$RUNNER_TEMP`, since the upstream action clears the workspace); Check the host tools; Install the 1Password CLI (only when no `op` on PATH); Credentials (the one step with the secret; each value masked as read); Probe; Review (upstream action); Verdict; Upload the ocr result; Upload the review state |
+| `review` | planned by the Authorize step (`lib/ocr-review/tier.mjs`, Issue#776; logged as `plan: <tier> tier, <N> minutes`): the caller's `review_runs_on` with the caller's `review_timeout_minutes` when given; else a PR changing more than 25 files or 800 lines (`long_review_files`, `long_review_lines`) on `CI_RUNS_ON_LONG`, the long niner (`cf-pool-long`, 2-hour ceiling), for 115 minutes; else `CI_RUNS_ON` with the caller's timeout (default 9; this repo's caller: 9 on the pool, 40 on GitHub-hosted runners). The Review step has its own timeout 2 minutes under the job's, and `review_task_timeout` is the lesser of 15 and that step timeout | needs `authorize` approve. Fetch the tools; Set up Node; Stage the tools (to `$RUNNER_TEMP`, since the upstream action clears the workspace); Check the host tools; Install the 1Password CLI (only when no `op` on PATH); Credentials (the one step with the secret; each value masked as read); Probe; Review (upstream action); Verdict; Upload the ocr result; Upload the review state |
 | `report` | 5 min | `if: always()` unless authorize was skipped or decided skip. Note a cancelled run; Fetch the tools; Set up Node; Fetch the review state; Build the run record; Upload the run record; Post the summary comment; React with the outcome (`+1` / `-1`, removes its own `eyes`, `continue-on-error`) |
 
 | Value | Setting | Where |
@@ -198,4 +198,16 @@ Recorded here as fact; recording is not approval.
   stdin and reports git's exit code and stderr.
 - **The pool's 10-minute ceiling shapes the timeouts.** The review job
   gets 9 minutes; a cold model on a cold OS cache can spend most of it in
-  the probe. The pilot's review took 65 s with a warm OS cache.
+  the probe. The pilot's review took 65 s with a warm OS cache. A large PR
+  outgrew it (misvtt PR#88, cancelled at 9 min 14 s), so since tds-utils
+  PR#780 a large PR runs on the long niner instead (Issue#776).
+- **A workflow default of 0 is "unset", not a value.** The threshold
+  inputs default to 0 so a caller can omit them; read as a number, 0 made
+  every PR large. `tier.mjs` takes a threshold or timeout only as a
+  positive integer (PR#780, caught by OCR).
+- **A workflow-shape test cannot land with its workflow change through
+  tedium.** The landing build runs the merged code with master's workflows
+  grafted in, so `test/ocr_review_workflow.test.mjs`, which reads the
+  workflow file, saw the old file and failed twice; PR#780 was landed by
+  hand. `tedium dryrun` does not graft, so it passed and predicted nothing
+  (template-tools Issue#1109).
