@@ -4,8 +4,8 @@
      joins it with each agent's clai.d/<agent>/AGENT.<agent>.md, when one
      exists, into ~/.local/share/tds-utils/agents/<agent>.md and points the
      agent's $HOME link there (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ...).
-     bin/tds-release runs it from the `release` worktree, so work in progress
-     on master is not live.
+     bin/tds-release runs it from the `release` worktree when it advances
+     release, so work in progress on master is not live.
 
      Edit it here on a branch, PR it to master, then release it with
      `bin/tds-release`. See docs/ops/clai.md and "The release worktree" in the
