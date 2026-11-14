@@ -1,0 +1,334 @@
+#!/usr/bin/env python3
+"""codex-session-cost -- what one Codex session cost, from its rollout log.
+
+Reads a Codex rollout log (one JSON record per line, under
+$CODEX_HOME/sessions, default ~/.codex/sessions) and prints:
+
+- the session kind: main, or auto-review (an approval judge session)
+- the size of the AGENTS block and of the skills list Codex sent first
+- the tool calls and the characters of output they returned
+- each skill whose SKILL.md a tool call named (a read, or a write), with
+  the number of calls and the characters of output those calls returned
+
+Paths under $HOME print from "~", and control characters print as "?",
+so the report can go in a public PR body and cannot drive the terminal.
+- the token totals from the last token count in the log
+
+Usage:
+    codex-session-cost <rollout.jsonl>
+    codex-session-cost --latest [--cwd <dir>]
+
+Exit: 0 on success; 2 when the log cannot be found or read.
+Standard library only, so it runs under `python3 -I`. Reads files only.
+Runbook: docs/ops/agent-load.md.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from collections import Counter
+from dataclasses import dataclass, field
+from pathlib import Path
+
+# --- Constants ---
+
+AGENTS_PREFIX = "# AGENTS.md instructions"
+SKILLS_PREFIX = "<skills_instructions>"
+JUDGE_MARKER = "You are judging one planned coding-agent action"
+CALL_TYPES = {"function_call", "custom_tool_call", "local_shell_call"}
+OUTPUT_TYPES = {
+    "function_call_output",
+    "custom_tool_call_output",
+    "local_shell_call_output",
+}
+# A path to a skill's SKILL.md: ".../skills/<name>/SKILL.md", possibly
+# with a level between (".../skills/.system/<name>/SKILL.md").
+SKILL_PATH = re.compile(r"skills/(?:[^\s'\"/]+/)?([^\s'\"/]+)/SKILL\.md")
+# C0 controls, DEL and C1 controls: what a terminal acts on.
+CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+# --- Domain values ---
+
+
+@dataclass(frozen=True)
+class Tokens:
+    """Token totals for a session, as Codex counted them."""
+
+    input: int = 0
+    cached: int = 0
+    output: int = 0
+
+    @property
+    def uncached(self) -> int:
+        """Input tokens that were not served from the cache."""
+        return self.input - self.cached
+
+
+@dataclass
+class SessionCost:
+    """What one session cost, accumulated record by record."""
+
+    kind: str = "main"
+    cwd: str = ""
+    agents_chars: int = 0
+    skills_list_chars: int = 0
+    tool_calls: int = 0
+    tool_output_chars: int = 0
+    skill_read_calls: int = 0
+    skill_read_output_chars: int = 0
+    skill_reads: Counter[str] = field(default_factory=Counter)
+    skill_output: Counter[str] = field(default_factory=Counter)
+    tokens: Tokens = field(default_factory=Tokens)
+
+
+# --- Predicates ---
+
+
+def is_skill_read(call_text: str) -> bool:
+    """True when a tool call's text names a skill's SKILL.md."""
+    return SKILL_PATH.search(call_text) is not None
+
+
+# --- Pure helpers ---
+
+
+def as_dict(value: object) -> dict[str, object]:
+    """The value when it is a JSON object, else an empty one."""
+    return value if isinstance(value, dict) else {}
+
+
+def as_int(value: object) -> int:
+    """The value when it is an integer, else 0."""
+    return value if isinstance(value, int) else 0
+
+
+def printable(text: str) -> str:
+    """The text with every control character replaced by "?"."""
+    return CONTROL_CHARS.sub("?", text)
+
+
+def from_home(path: str, *, homes: list[str]) -> str:
+    """The path with a leading home directory written as "~"."""
+    for home in homes:
+        home = home.rstrip("/")
+        if home and (path == home or path.startswith(home + "/")):
+            return "~" + path[len(home) :]
+    return path
+
+
+def message_texts(payload: dict[str, object]) -> list[str]:
+    """The text parts of a message payload."""
+    parts = payload.get("content")
+    if not isinstance(parts, list):
+        return []
+    texts = []
+    for part in parts:
+        text = as_dict(part).get("text")
+        if isinstance(text, str):
+            texts.append(text)
+    return texts
+
+
+def call_text(payload: dict[str, object]) -> str:
+    """The text a tool call carries: its arguments, input or action."""
+    for key in ("arguments", "input"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            return value
+    return json.dumps(payload.get("action", ""))
+
+
+def output_chars(payload: dict[str, object]) -> int:
+    """Characters of output a tool call returned."""
+    value = payload.get("output")
+    return len(value) if isinstance(value, str) else len(json.dumps(value))
+
+
+def skills_named(text: str) -> set[str]:
+    """Names of the skills whose SKILL.md the text mentions."""
+    return set(SKILL_PATH.findall(text))
+
+
+def tokens_from(payload: dict[str, object]) -> Tokens | None:
+    """The session totals a token-count event carries, if any."""
+    usage = as_dict(as_dict(payload.get("info")).get("total_token_usage"))
+    if not usage:
+        return None
+    return Tokens(
+        input=as_int(usage.get("input_tokens")),
+        cached=as_int(usage.get("cached_input_tokens")),
+        output=as_int(usage.get("output_tokens")),
+    )
+
+
+def add_message(cost: SessionCost, payload: dict[str, object]) -> None:
+    """Account for a message: the AGENTS block, skills list, judge prompt."""
+    for text in message_texts(payload):
+        if text.startswith(AGENTS_PREFIX) and not cost.agents_chars:
+            cost.agents_chars = len(text)
+        elif text.startswith(SKILLS_PREFIX) and not cost.skills_list_chars:
+            cost.skills_list_chars = len(text)
+        elif JUDGE_MARKER in text and payload.get("role") == "developer":
+            cost.kind = "auto-review"
+
+
+def add_record(
+    cost: SessionCost,
+    record: dict[str, object],
+    *,
+    calls: dict[str, str],
+) -> None:
+    """Fold one log record into the cost. `calls` maps call id to call text."""
+    payload = as_dict(record.get("payload"))
+    kind = payload.get("type")
+    if record.get("type") == "session_meta":
+        cwd = payload.get("cwd")
+        cost.cwd = cwd if isinstance(cwd, str) else ""
+    elif kind == "message":
+        add_message(cost, payload)
+    elif kind in CALL_TYPES:
+        cost.tool_calls += 1
+        text = call_text(payload)
+        calls[str(payload.get("call_id"))] = text
+        names = skills_named(text)
+        if names:
+            cost.skill_read_calls += 1
+            cost.skill_reads.update(names)
+    elif kind in OUTPUT_TYPES:
+        chars = output_chars(payload)
+        cost.tool_output_chars += chars
+        text = calls.get(str(payload.get("call_id")), "")
+        if is_skill_read(text):
+            cost.skill_read_output_chars += chars
+            for name in skills_named(text):
+                cost.skill_output[name] += chars
+    elif kind == "token_count":
+        tokens = tokens_from(payload)
+        if tokens is not None:
+            cost.tokens = tokens
+
+
+def render(cost: SessionCost, *, name: str, homes: list[str]) -> list[str]:
+    """The report, one line per fact. `homes` are the spellings of $HOME."""
+    lines = [
+        f"session: {printable(name)}",
+        f"kind: {cost.kind}",
+        f"cwd: {printable(from_home(cost.cwd, homes=homes))}",
+        f"agents block: {cost.agents_chars} chars",
+        f"skills list: {cost.skills_list_chars} chars",
+        f"tool calls: {cost.tool_calls}, output {cost.tool_output_chars} chars",
+        f"skill calls: {cost.skill_read_calls} calls name a SKILL.md,"
+        f" output {cost.skill_read_output_chars} chars",
+    ]
+    for skill, count in sorted(
+        cost.skill_reads.items(), key=lambda kv: (-kv[1], kv[0])
+    ):
+        noun = "call" if count == 1 else "calls"
+        repeat = " (repeat)" if count > 1 else ""
+        chars = cost.skill_output[skill]
+        lines.append(f"skill {printable(skill)}: {count} {noun}, {chars} chars{repeat}")
+    t = cost.tokens
+    lines.append(
+        f"tokens: input {t.input}, cached {t.cached},"
+        f" uncached {t.uncached}, output {t.output}"
+    )
+    return lines
+
+
+# --- Flow functions ---
+
+
+def session_cost(log: Path) -> SessionCost:
+    """Read a rollout log and return what the session cost."""
+    cost = SessionCost()
+    calls: dict[str, str] = {}
+    with log.open(encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            add_record(cost, as_dict(record), calls=calls)
+    return cost
+
+
+def session_cwd(log: Path) -> str:
+    """The cwd in a rollout log's first record, or empty."""
+    with log.open(encoding="utf-8") as fh:
+        first = fh.readline()
+    try:
+        record = as_dict(json.loads(first))
+    except json.JSONDecodeError:
+        return ""
+    cwd = as_dict(record.get("payload")).get("cwd")
+    return cwd if isinstance(cwd, str) else ""
+
+
+def latest_log(sessions: Path, *, cwd: str | None) -> Path | None:
+    """The newest rollout log under `sessions`, for `cwd` when given."""
+    logs = sorted(
+        sessions.rglob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
+    for log in logs:
+        if cwd is None or session_cwd(log) == cwd:
+            return log
+    return None
+
+
+# --- Entry point ---
+
+
+def home_spellings() -> list[str]:
+    """$HOME as set, and as its resolved path."""
+    home = os.environ.get("HOME") or str(Path.home())
+    return [home, os.path.realpath(home)]
+
+
+def sessions_dir() -> Path:
+    """$CODEX_HOME/sessions, defaulting CODEX_HOME to ~/.codex."""
+    home = os.environ.get("CODEX_HOME") or str(Path.home() / ".codex")
+    return Path(home) / "sessions"
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="codex-session-cost",
+        description="What one Codex session cost, from its rollout log.",
+    )
+    parser.add_argument("log", nargs="?", help="path to a rollout .jsonl log")
+    parser.add_argument("--latest", action="store_true", help="read the newest log")
+    parser.add_argument("--cwd", help="with --latest: the newest log for this cwd")
+    args = parser.parse_args(argv)
+
+    if args.latest == bool(args.log):
+        parser.print_usage(sys.stderr)
+        print("codex-session-cost: give a log path or --latest", file=sys.stderr)
+        return 2
+    if args.latest:
+        found = latest_log(sessions_dir(), cwd=args.cwd)
+        if found is None:
+            where = f" for cwd {args.cwd}" if args.cwd else ""
+            print(
+                f"codex-session-cost: no log under {sessions_dir()}{where}",
+                file=sys.stderr,
+            )
+            return 2
+        log = found
+    else:
+        log = Path(args.log)
+    if not log.is_file():
+        print(f"codex-session-cost: no such log: {log}", file=sys.stderr)
+        return 2
+
+    report = render(session_cost(log), name=log.name, homes=home_spellings())
+    print("\n".join(report))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
