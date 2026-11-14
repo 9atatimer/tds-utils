@@ -55,7 +55,7 @@ CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 # --- Domain values ---
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Tokens:
     """Token totals for a session, as Codex counted them."""
 
@@ -69,7 +69,7 @@ class Tokens:
         return self.input - self.cached
 
 
-@dataclass(slots=True)
+@dataclass
 class SessionCost:
     """What one session cost, accumulated record by record."""
 

@@ -139,6 +139,18 @@ test_control_characters_never_reach_the_terminal() {
     grep -qF 'skill a?[2Jb: 1 call' <<<"${out}" || fail "hostile skill name not shown: ${out}"
 }
 
+# Given macOS's stock /usr/bin/python3 (3.9), When it runs the script on a
+# main session's log, Then the report comes out. Skipped where that
+# interpreter is absent.
+test_runs_under_stock_macos_python() {
+    [[ -x /usr/bin/python3 ]] || return 0
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local log="${WORK}/stock.jsonl" out
+    write_rollout "${log}" /w/repo main
+    out=$(/usr/bin/python3 -I "${TOOL}" "${log}" 2>&1) || fail "stock python3: ${out}"
+    grep -qxF 'kind: main' <<<"${out}" || fail "stock python3: ${out}"
+}
+
 # Given two logs under CODEX_HOME, When --latest runs with and without
 # --cwd, Then it reads the newest log, or the newest log for that cwd.
 test_latest_picks_newest_log_for_cwd() {
@@ -173,6 +185,7 @@ main() {
     test_reports_a_judge_session
     test_cwd_under_home_prints_from_tilde
     test_control_characters_never_reach_the_terminal
+    test_runs_under_stock_macos_python
     test_latest_picks_newest_log_for_cwd
     test_missing_log_is_usage_error
     if [[ "${TESTS_FAILED}" -gt 0 ]]; then

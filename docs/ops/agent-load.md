@@ -18,7 +18,7 @@ put their output in the PR body.
 ## Install
 
 Nothing to install. Both scripts are in `bin/`, which is on `PATH` after
-`bin/tds-release`. `codex-session-cost` needs `python3` 3.10 or later.
+`bin/tds-release`. `codex-session-cost` needs `python3` 3.9 or later; macOS's stock `/usr/bin/python3` works.
 
 ## agent-load
 
