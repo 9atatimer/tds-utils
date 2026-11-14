@@ -139,8 +139,8 @@ const postCountsEnv = (env) => ({
 // --- Flow: authorize --------------------------------------------------------
 
 /** The authorize step. Env: GITHUB_TOKEN, REPO, EVENT_NAME, COMMENT_BODY,
- * AUTHOR_ASSOCIATION, PR; for the review job's plan (Issue#776) CI_RUNS_ON,
- * CI_RUNS_ON_LONG, REVIEW_RUNS_ON, REVIEW_TIMEOUT_MINUTES,
+ * AUTHOR_ASSOCIATION, PR; for the review job's plan (Issue#776, Issue#787)
+ * CI_RUNS_ON, CI_RUNS_ON_DOCKER, CI_RUNS_ON_LONG, REVIEW_RUNS_ON, REVIEW_TIMEOUT_MINUTES,
  * LONG_REVIEW_FILES, LONG_REVIEW_LINES. Returns the exit code. */
 export async function runAuthorize({ env, fetch, step, now }) {
   const trigger = triggerOf(env.EVENT_NAME);
@@ -183,6 +183,7 @@ export async function runAuthorize({ env, fetch, step, now }) {
     callerRunsOn: env.REVIEW_RUNS_ON ?? '',
     callerTimeout: env.REVIEW_TIMEOUT_MINUTES ?? '',
     runsOn: env.CI_RUNS_ON ?? '',
+    runsOnDocker: env.CI_RUNS_ON_DOCKER ?? '',
     runsOnLong: env.CI_RUNS_ON_LONG ?? '',
     maxFiles: env.LONG_REVIEW_FILES ?? '',
     maxLines: env.LONG_REVIEW_LINES ?? '',

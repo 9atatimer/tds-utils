@@ -14,10 +14,11 @@
 # sticky summary on the PR, which cannot be turned off and names the
 # findings that failed to post; ours links it (Key Decisions, option A).
 #
-# Three jobs, each on the caller's CI_RUNS_ON runner pool when the caller
-# sets that variable (a called workflow reads the caller's vars), else on a
-# GitHub-hosted runner, and each under the pool's 10-minute container
-# ceiling:
+# Three jobs, each on the caller's runner pool when the caller sets its
+# variables (a called workflow reads the caller's vars), else on a
+# GitHub-hosted runner. authorize and report run on CI_RUNS_ON, under the
+# standard niner's 10-minute ceiling; the review job runs where authorize
+# plans it (below):
 #
 #   authorize  references no secret and runs nothing from the PR: skip
 #              (not /ocr, or not a collaborator), fail (pr-not-open, fork)
@@ -78,17 +79,17 @@ on:
         type: string
         required: true
       review_runs_on:
-        description: Runner labels for the review job only, as JSON (e.g. '["self-hosted","cf-pool-docker"]' for the pool's 20-minute class); empty uses CI_RUNS_ON.
+        description: Runner labels for the review job only, as JSON; empty lets authorize plan it (CI_RUNS_ON_LONG for a large PR, else CI_RUNS_ON_DOCKER, else CI_RUNS_ON).
         type: string
         required: false
         default: ''
       review_timeout_minutes:
-        description: The review job's timeout; keep it under the ceiling of the runner review_runs_on names (9 under the standard pool's 10 minutes, 19 under the Docker class's 20). A large PR on the long niner gets 115 instead, unless review_runs_on is set.
+        description: The review job's timeout on review_runs_on or on CI_RUNS_ON; keep it under that runner's ceiling (9 under the standard niner's 10 minutes). Ignored on the planned medium niner (19 minutes) and long niner (115).
         type: number
         required: false
         default: 9
       long_review_files:
-        description: A PR changing more files than this is reviewed on the long niner (the owner's CI_RUNS_ON_LONG); 0 uses the default, 25.
+        description: A PR changing more files than this is reviewed on the long niner (the owner's CI_RUNS_ON_LONG); 0 uses the default, 24 (so 25 files or more go long).
         type: number
         required: false
         default: 0
@@ -168,9 +169,11 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
           PR: ${{ inputs.pr }}
-          # The review job's plan (Issue#776): a large PR goes to the long
-          # niner when the owner has set CI_RUNS_ON_LONG.
+          # The review job's plan (Issue#776, Issue#787): a large PR goes to
+          # the long niner (CI_RUNS_ON_LONG), every other PR to the medium
+          # niner (CI_RUNS_ON_DOCKER), each when the owner has set it.
           CI_RUNS_ON: ${{ vars.CI_RUNS_ON }}
+          CI_RUNS_ON_DOCKER: ${{ vars.CI_RUNS_ON_DOCKER }}
           CI_RUNS_ON_LONG: ${{ vars.CI_RUNS_ON_LONG }}
           REVIEW_RUNS_ON: ${{ inputs.review_runs_on }}
           REVIEW_TIMEOUT_MINUTES: ${{ inputs.review_timeout_minutes }}
@@ -197,11 +200,12 @@ jobs:
     needs: [authorize]
     if: needs.authorize.outputs.decision == 'approve'
     # The authorize step plans this job's runner and timeout
-    # (lib/ocr-review/tier.mjs, Issue#776): the caller's review_runs_on and
-    # timeout when given; else a large PR on the long niner
-    # (CI_RUNS_ON_LONG, 115 minutes under its 2-hour ceiling); else
+    # (lib/ocr-review/tier.mjs, Issue#776, Issue#787): the caller's
+    # review_runs_on and timeout when given; else a large PR on the long
+    # niner (CI_RUNS_ON_LONG, 115 minutes under its 2-hour ceiling); else the
+    # medium niner (CI_RUNS_ON_DOCKER, 19 minutes under its 20); else
     # CI_RUNS_ON with the caller's timeout, 9 minutes by default, under the
-    # standard pool's 10-minute ceiling.
+    # standard niner's 10-minute ceiling.
     runs-on: ${{ fromJSON(needs.authorize.outputs.review_runs_on || '"ubuntu-latest"') }}
     timeout-minutes: ${{ fromJSON(needs.authorize.outputs.review_timeout_minutes || '9') }}
     env:
