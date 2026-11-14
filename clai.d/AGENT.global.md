@@ -1,13 +1,15 @@
 <!-- AGENT.global.md -- the GLOBAL agent instruction file for this machine.
 
-     Canonical source. $HOME symlinks resolve to the copy of this file in the
-     `release` worktree (~/workplace/.worktrees/tds-utils-release), NOT to the
-     primary checkout, so work in progress on master is not live:
+     Canonical source, and the core every agent shares. bin/agent-instructions
+     joins it with each agent's clai.d/<agent>/AGENT.<agent>.md, when one
+     exists, into ~/.local/share/tds-utils/agents/<agent>.md and points the
+     agent's $HOME link there (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ...).
+     bin/tds-release runs it from the `release` worktree when it advances
+     release, so work in progress on master is not live.
 
-         ~/.claude/CLAUDE.md -> .../tds-utils-release/clai.d/AGENT.global.md
-
-     Edit it here on a branch, PR it to master, then release it to `release` with
-     `bin/tds-release`. See "The release worktree" in the repo AGENT.md.
+     Edit it here on a branch, PR it to master, then release it with
+     `bin/tds-release`. See docs/ops/clai.md and "The release worktree" in the
+     repo AGENT.md.
 
      Named .global so agents working inside clai.d/ do not auto-load it a
      second time as directory-scoped instructions. -->

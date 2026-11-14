@@ -322,6 +322,59 @@ case_whitespace_sentry_blocks_release() {
 
 # --- The private release unit ----------------------------------------------
 
+# make_repo_with_agent_tool <name> <exit-status> -- make_repo, where master's
+# tip adds a stub bin/agent-instructions that records its run in $MARK and
+# exits with the given status. Echoes the repo root.
+make_repo_with_agent_tool() {
+    local name="$1" status="$2" root
+    root="$(make_repo "${name}")"
+    mkdir -p "${root}/bin"
+    printf '#!/bin/sh\necho "ran${TDS_AGENT_SOURCE:+ from $TDS_AGENT_SOURCE}" >> "$MARK"\nexit %s\n' "${status}" > "${root}/bin/agent-instructions"
+    chmod +x "${root}/bin/agent-instructions"
+    git -C "${root}" add bin/agent-instructions
+    git -C "${root}" commit -qm "agent tool"
+    printf '%s\n' "${root}"
+}
+
+case_release_rebuilds_agent_instructions() {
+    bold "case: a public release runs the released bin/agent-instructions"; echo
+    local root rc mark="${WORKROOT}/mark-ok"
+    root="$(make_repo_with_agent_tool agentok 0)"
+    MARK="${mark}" run_release "${root}" && rc=0 || rc=$?
+    assert "exits 0"                      "[ ${rc} -eq 0 ]"
+    assert "release advanced to master"   "[ \"$(head_of "$(release_wt agentok)")\" = \"$(git -C "${root}" rev-parse master)\" ]"
+    assert "agent-instructions ran once"  "[ \"$(cat "${mark}" 2>/dev/null)\" = ran ]"
+}
+
+case_agent_instructions_failure_does_not_fail_release() {
+    bold "case: a failing agent-instructions is reported, and the release stands"; echo
+    local root rc mark="${WORKROOT}/mark-fail"
+    root="$(make_repo_with_agent_tool agentfail 3)"
+    MARK="${mark}" run_release "${root}" && rc=0 || rc=$?
+    assert "exits 0"                      "[ ${rc} -eq 0 ]"
+    assert "release advanced to master"   "[ \"$(head_of "$(release_wt agentfail)")\" = \"$(git -C "${root}" rev-parse master)\" ]"
+    assert "agent-instructions ran"       "[ \"$(cat "${mark}" 2>/dev/null)\" = ran ]"
+    assert "the failure is named"         "grep -q 'agent-instructions' '${WORKROOT}/out'"
+}
+
+case_release_ignores_a_stray_agent_source() {
+    bold "case: a stray TDS_AGENT_SOURCE does not redirect the release's rebuild"; echo
+    local root rc mark="${WORKROOT}/mark-src"
+    root="$(make_repo_with_agent_tool agentsrc 0)"
+    TDS_AGENT_SOURCE="${WORKROOT}/elsewhere" MARK="${mark}" run_release "${root}" && rc=0 || rc=$?
+    assert "exits 0"                          "[ ${rc} -eq 0 ]"
+    assert "the tool ran without the override" "[ \"$(cat "${mark}" 2>/dev/null)\" = ran ]"
+}
+
+case_release_without_the_tool_says_so() {
+    bold "case: a release of a commit with no agent-instructions says the files were not rebuilt"; echo
+    local root rc
+    root="$(make_repo agentnone)"
+    run_release "${root}" && rc=0 || rc=$?
+    assert "exits 0"            "[ ${rc} -eq 0 ]"
+    assert "says not rebuilt"   "grep -q 'not rebuilt' '${WORKROOT}/out'"
+}
+
 case_private_unit_advances() {
     bold "case: the private unit is released alongside the public one"; echo
     local pub priv rc
@@ -588,6 +641,10 @@ main() {
     case_sentry_checked_on_target_not_current
     case_empty_sentry_blocks_release
     case_whitespace_sentry_blocks_release
+    case_release_rebuilds_agent_instructions
+    case_agent_instructions_failure_does_not_fail_release
+    case_release_ignores_a_stray_agent_source
+    case_release_without_the_tool_says_so
     case_private_unit_advances
     case_absent_private_unit_is_a_skip
     case_private_unit_without_a_release_worktree_is_a_skip

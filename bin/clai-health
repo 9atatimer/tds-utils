@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# clai-health -- one row per coding agent: is it wired the way clai.d says?
+#
+# For claude, codex, opencode and omp it prints whether the agent's command
+# is on PATH, whether its instruction file is current (bin/agent-instructions
+# check), the bytes it loads from that file, the skills in the repo's skills
+# directory for it, its config file and whether ast-mcp is registered there,
+# and Codex's default model. Paths under $HOME print from "~".
+#
+# Usage: clai-health [-r repo]   (default: the git top level of $PWD)
+# Exit: 0 every installed agent current; 1 an installed agent is not; 2 usage.
+# Reads only. Runbook: docs/ops/clai.md.
+
+set -euo pipefail
+
+AGENTS=(claude codex opencode omp)
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- Action functions ---
+
+usage() { echo "usage: clai-health [-r repo]"; }
+
+# agent_facts <agent> -- "<instructions link> <skills dir> <config file>",
+# each relative to $HOME except the skills dir, which is relative to the
+# repo; "-" where the agent has none this table knows.
+agent_facts() {
+    case "$1" in
+        claude)   echo ".claude/CLAUDE.md .claude/skills .claude.json" ;;
+        codex)    echo ".codex/AGENTS.md .codex/skills .codex/config.toml" ;;
+        opencode) echo ".config/opencode/AGENTS.md .claude/skills .config/opencode/opencode.json" ;;
+        omp)      echo ".omp/agent/AGENTS.md - .omp/agent/config.yml" ;;
+    esac
+}
+
+on_path() { if command -v "$1" >/dev/null 2>&1; then echo yes; else echo no; fi; }
+
+# instructions_state <agent> <link> -- not installed, current, or stale.
+instructions_state() {
+    if [[ ! -d "$(dirname "$2")" ]]; then
+        echo "not installed"
+    elif "${SELF_DIR}/agent-instructions" -a "$1" check >/dev/null 2>&1; then
+        echo current
+    else
+        echo stale
+    fi
+}
+
+file_bytes() { if [[ -f "$1" ]]; then wc -c <"$1" | tr -d ' '; else echo 0; fi; }
+
+skills_count() {
+    local dir=$1 n=0 f
+    [[ "${dir}" != "-" ]] || { echo "-"; return; }
+    for f in "${dir}"/*/SKILL.md; do
+        [[ -f "${f}" ]] && n=$((n + 1))
+    done
+    echo "${n}"
+}
+
+# config_label <rel> -- "~/<rel>", marked when absent.
+config_label() {
+    # The "~/" is a display label, not a path to expand.
+    # shellcheck disable=SC2088
+    if [[ -f "${HOME}/$1" ]]; then echo "~/$1"; else echo "~/$1 (missing)"; fi
+}
+
+has_ast_mcp() { if [[ -f "$1" ]] && grep -q 'ast-mcp' "$1"; then echo yes; else echo no; fi; }
+
+# codex_model <config.toml> -- the top-level model key, or "-".
+codex_model() {
+    [[ -f "$1" ]] || { echo "-"; return; }
+    awk -F'"' '/^\[/{exit} /^model[ \t]*=/{print $2; found=1; exit} END{if(!found) print "-"}' "$1"
+}
+
+repo_root() { git -C "$1" rev-parse --show-toplevel 2>/dev/null || (cd "$1" && pwd); }
+
+# --- Flow functions ---
+
+# agent_row <agent> <repo> -- prints the row; returns 1 when installed and stale.
+agent_row() {
+    local agent=$1 repo=$2 link_rel skills_rel config_rel
+    read -r link_rel skills_rel config_rel <<<"$(agent_facts "${agent}")"
+    local link="${HOME}/${link_rel}" skills_dir="-" state model="-"
+    [[ "${skills_rel}" == "-" ]] || skills_dir="${repo}/${skills_rel}"
+    state=$(instructions_state "${agent}" "${link}")
+    [[ "${agent}" != codex ]] || model=$(codex_model "${HOME}/${config_rel}")
+    echo "| ${agent} | $(on_path "${agent}") | ${state} | $(file_bytes "${link}") | $(skills_count "${skills_dir}") | $(config_label "${config_rel}") | $(has_ast_mcp "${HOME}/${config_rel}") | ${model} |"
+    [[ "${state}" != stale ]]
+}
+
+render() {
+    local repo=$1 agent status=0
+    echo "| agent | on PATH | instructions | bytes | repo skills | config | ast-mcp | model |"
+    echo "|-------|---------|--------------|------:|------------:|--------|---------|-------|"
+    for agent in "${AGENTS[@]}"; do
+        agent_row "${agent}" "${repo}" || status=1
+    done
+    return "${status}"
+}
+
+# --- Main ---
+
+main() {
+    local repo="" opt
+    while getopts "r:h" opt; do
+        case "${opt}" in
+            r) repo=$OPTARG ;;
+            h) usage; exit 0 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+    done
+    if [[ -n "${repo}" && ! -d "${repo}" ]]; then
+        echo "clai-health: no such directory: ${repo}" >&2
+        exit 2
+    fi
+    render "$(repo_root "${repo:-$PWD}")"
+}
+
+main "$@"
