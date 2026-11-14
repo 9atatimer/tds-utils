@@ -565,7 +565,7 @@ a change that needs to break one is a design change, not a fix.
 - Defect: cut the Issue first (evidence, mechanism), then a RED test that
   fails for the reported reason, then the fix. Feature: the authority is
   an owner ruling or an issue; record it.
-- Work in a worktree off `origin/master`; one PR per task.
+- Work in a worktree off `origin/master`; one open PR per session.
 - Keep logic out of the YAML. A new step is a `bin/ocr-review` subcommand
   plus a pure helper in `lib/ocr-review/`, tested with fakes (the io tests
   inject `fetch`, `git`, `op`, `readFile`, a clock and a step recorder).
