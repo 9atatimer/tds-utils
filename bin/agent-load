@@ -122,6 +122,8 @@ agent_row() {
     read -r count desc <<<"$(skills_summary "${skills_dir}")"
     verdict=ok
     [[ "${total}" -le "${budget}" ]] || verdict=over
+    # The "~/" is a display label, not a path to expand.
+    # shellcheck disable=SC2088
     echo "| ${agent} | $(shown_path "~/${global_rel}" "${global_path}") | ${gbytes} | $(shown_path "${repo_file}" "${repo_path}") | ${rbytes} | ${total} | ${count} | ${desc} | ${verdict} |"
     [[ "${verdict}" == ok ]]
 }
