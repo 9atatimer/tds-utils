@@ -389,7 +389,6 @@ plan_unit() {
         "${unit}" "${wt}" "${release_sha}" "${target_sha}" "${target}" >> "${plan_file}"
 }
 
-# apply_plan <plan-line> -- advance one unit that already passed every check.
 # rebuild_agent_instructions <release-worktree> -- run the RELEASED
 # bin/agent-instructions, so each agent's instruction file is built from the
 # commit that just went live. The release has already moved, so a failure
@@ -397,10 +396,16 @@ plan_unit() {
 # run again by hand.
 rebuild_agent_instructions() {
     local tool="$1/bin/agent-instructions"
-    [ -x "${tool}" ] || return 0
-    "${tool}" || note "public: bin/agent-instructions failed; run it again: ${tool}"
+    if [ ! -x "${tool}" ]; then
+        note "public: this commit has no bin/agent-instructions; agent instruction files were not rebuilt and hold the previous build"
+        return 0
+    fi
+    # TDS_AGENT_SOURCE is a test override; the release builds only from itself.
+    env -u TDS_AGENT_SOURCE "${tool}" \
+        || note "public: bin/agent-instructions failed; run it again: ${tool}"
 }
 
+# apply_plan <plan-line> -- advance one unit that already passed every check.
 apply_plan() {
     local unit wt release_sha target_sha target
     IFS=$'\t' read -r unit wt release_sha target_sha target <<EOT

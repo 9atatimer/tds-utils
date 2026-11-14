@@ -126,6 +126,29 @@ test_dry_run_writes_nothing() {
     grep -q 'would' <<<"${out}" || fail "dry run said nothing: ${out}"
 }
 
+# Given an installed world whose codex fragment becomes unreadable, When
+# agent-instructions runs, Then it exits 1, keeps the previous good file,
+# leaves no temp file behind, and check exits 1.
+test_a_failed_build_keeps_the_last_good_file() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local root rc=0 before
+    root=$(make_world unreadable)
+    run_tool "${root}" >/dev/null 2>&1 || fail "unreadable: install failed"
+    before=$(cat "$(built "${root}" codex)")
+    printf 'CODEX CHANGED\n' >"${root}/src/clai.d/codex/AGENT.codex.md"
+    chmod 000 "${root}/src/clai.d/codex/AGENT.codex.md"
+    run_tool "${root}" -a codex >/dev/null 2>&1 || rc=$?
+    [[ "${rc}" -eq 1 ]] || fail "unreadable: exit ${rc}, want 1"
+    [[ "$(cat "$(built "${root}" codex)")" == "${before}" ]] || fail "unreadable: the good file was replaced"
+    if ls "$(dirname "$(built "${root}" codex)")" | grep -q '\.md\.'; then
+        fail "unreadable: a temp file was left behind"
+    fi
+    rc=0
+    run_tool "${root}" -a codex check >/dev/null 2>&1 || rc=$?
+    [[ "${rc}" -eq 1 ]] || fail "unreadable: check exit ${rc}, want 1"
+    chmod 644 "${root}/src/clai.d/codex/AGENT.codex.md"
+}
+
 # Given -a with an agent it does not know, When it runs, Then it exits 2 and
 # names the agents it knows.
 test_unknown_agent_is_usage_error() {
@@ -147,6 +170,7 @@ main() {
     test_never_clobbers_a_regular_file
     test_check_finds_a_stale_file_and_changes_nothing
     test_dry_run_writes_nothing
+    test_a_failed_build_keeps_the_last_good_file
     test_unknown_agent_is_usage_error
     if [[ "${TESTS_FAILED}" -gt 0 ]]; then
         echo "${TESTS_FAILED} failed check(s) in ${TESTS_RUN} tests"

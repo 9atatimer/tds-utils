@@ -108,6 +108,10 @@ main() {
             *) usage >&2; exit 2 ;;
         esac
     done
+    if [[ -n "${repo}" && ! -d "${repo}" ]]; then
+        echo "clai-health: no such directory: ${repo}" >&2
+        exit 2
+    fi
     render "$(repo_root "${repo:-$PWD}")"
 }
 

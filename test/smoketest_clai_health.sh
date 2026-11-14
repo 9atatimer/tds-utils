@@ -94,6 +94,18 @@ test_stale_instructions_exit_one() {
     grep -qF '| omp | no | not installed |' <<<"$(row "${out}" omp)" || fail "omp: $(row "${out}" omp)"
 }
 
+# Given -r naming a directory that does not exist, When clai-health runs,
+# Then it exits 2 and prints no table.
+test_a_missing_repo_is_a_usage_error() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local out rc=0
+    out=$(env_run "${BIN}/clai-health" -r "${WORK}/no-such-repo" 2>&1) || rc=$?
+    [[ "${rc}" -eq 2 ]] || fail "missing repo: exit ${rc}, want 2"
+    if grep -q '^| codex' <<<"${out}"; then
+        fail "missing repo: printed a table"
+    fi
+}
+
 # --- Main ---
 
 main() {
@@ -102,6 +114,7 @@ main() {
     test_reports_a_wired_agent
     test_reports_what_is_missing_from_tilde
     test_stale_instructions_exit_one
+    test_a_missing_repo_is_a_usage_error
     if [[ "${TESTS_FAILED}" -gt 0 ]]; then
         echo "${TESTS_FAILED} failed check(s) in ${TESTS_RUN} tests"
         exit 1
