@@ -55,8 +55,12 @@ not resolve into this checkout. They resolve into the `release` worktree:
 ```
 ~/.zshrc  -> ~/workplace/.worktrees/tds-utils-release/macos/dot.zshrc
 ~/.emacs.d -> ~/workplace/.worktrees/tds-utils-release/emacs/dot.emacs.d
-~/.claude/CLAUDE.md -> ~/workplace/.worktrees/tds-utils-release/clai.d/AGENT.global.md
 ```
+
+Agent instruction files are not among them: `bin/agent-instructions` builds
+each agent's file from the release worktree into
+`~/.local/share/tds-utils/agents/` and owns its `$HOME` link
+(`docs/ops/clai.md`).
 
 `bin/tds-release-link` owns those links (`-n` to preview, `-r` to put them back
 on the primary checkout). Run it after creating the release worktree on a new
@@ -225,9 +229,11 @@ git worktree add ~/workplace/.worktrees/tds-utils-<topic> -b <branch> master
 
 ### The global agent instruction file
 
-`clai.d/AGENT.global.md` is the global instruction file for every agent on this
-machine (Claude Code, codex, opencode, gemini), reaching them through the
-release worktree. It is NOT this file: `AGENT.md` is repo-scoped instructions
+`clai.d/AGENT.global.md` is the core of the global instruction file for every
+agent on this machine (Claude Code, codex, opencode, omp). `bin/tds-release`
+runs `bin/agent-instructions`, which joins it with each agent's
+`clai.d/<agent>/AGENT.<agent>.md` and links the result into that agent's home
+(`docs/ops/clai.md`). It is NOT this file: `AGENT.md` is repo-scoped instructions
 for working in tds-utils, `AGENT.global.md` is machine-scoped instructions that
 happen to be version-controlled here.
 
