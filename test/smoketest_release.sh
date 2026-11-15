@@ -406,6 +406,31 @@ case_release_runs_the_released_post_release_steps() {
         "grep -q 'not the released' '${WORKROOT}/out'"
 }
 
+case_a_failing_post_release_leaves_the_release_standing() {
+    bold "case: a failing released bin/tds-post-release is reported, and the release stands"; echo
+    local root rc stub="${WORKROOT}/post-fail-stub"
+    printf '#!/bin/sh\nexit 3\n' > "${stub}"
+    root="$(make_repo_with_post_release postfail "${stub}")"
+    run_release "${root}" && rc=0 || rc=$?
+    assert "exits 0"                          "[ ${rc} -eq 0 ]"
+    assert "release advanced to master" \
+        "[ \"$(head_of "$(release_wt postfail)")\" = \"$(git -C "${root}" rev-parse master)\" ]"
+    assert "the failure is named"             "grep -q 'post-release steps failed' '${WORKROOT}/out'"
+}
+
+case_the_released_copy_says_nothing_about_itself() {
+    bold "case: a release by a copy identical to the released one does not warn"; echo
+    local root rc stub="${WORKROOT}/post-quiet-stub"
+    printf '#!/bin/sh\nexit 0\n' > "${stub}"
+    root="$(make_repo_with_post_release postsame "${stub}")"
+    cp "${RELEASER}" "${root}/bin/tds-release"
+    git -C "${root}" add bin/tds-release
+    git -C "${root}" commit -qm "the released copy is the running one"
+    run_release "${root}" && rc=0 || rc=$?
+    assert "exits 0"                          "[ ${rc} -eq 0 ]"
+    assert "no not-the-released note"         "! grep -q 'not the released' '${WORKROOT}/out'"
+}
+
 case_the_real_post_release_rebuilds_once() {
     bold "case: this repo's bin/tds-post-release rebuilds the agent instruction files once"; echo
     local root rc mark="${WORKROOT}/mark-real-post"
@@ -685,6 +710,8 @@ main() {
     case_release_rebuilds_agent_instructions
     case_release_runs_the_released_post_release_steps
     case_the_real_post_release_rebuilds_once
+    case_a_failing_post_release_leaves_the_release_standing
+    case_the_released_copy_says_nothing_about_itself
     case_agent_instructions_failure_does_not_fail_release
     case_release_ignores_a_stray_agent_source
     case_release_without_the_tool_says_so
