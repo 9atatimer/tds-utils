@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# 30-model -- clai pre-hook for codex: own Codex's default model and
+# reasoning effort in ~/.codex/config.toml.
+#
+# Sets the two top-level keys `model` and `model_reasoning_effort`, which
+# every Codex surface reads (the CLI, `codex exec`, and the desktop app on
+# its next start). Nothing else in the file is touched: not other keys, not
+# comments, not any table, so a profile keeps its own model.
+#
+#   model                   CLAI_CODEX_MODEL             (default gpt-6.1-terra)
+#   model_reasoning_effort  CLAI_CODEX_REASONING_EFFORT  (default medium)
+#
+# gpt-6.1-terra is the owner's choice over the 5.x terra models, and medium
+# the most cost-effective effort; 6.1-terra's own default is low, so the
+# effort is always written (owner, 2026-11-14).
+#
+# The edit is made by Python, which reads the file with tomllib (Python 3.11
+# or later) and writes it back only when the result parses to the original
+# with exactly those two keys set. A symlinked config.toml is edited in its
+# target, and the file keeps its mode. A value that is not a plain model or
+# effort name is refused.
+#
+# Fail-open, as every clai pre-hook must be: a pre-hook that exits non-zero
+# aborts the launch, so every path exits 0, and every skip says why on
+# stderr. Runbook: docs/ops/clai.md.
+
+set -uo pipefail
+
+# --- Action functions ---
+
+note() { echo "clai/30-model: $*" >&2; }
+
+# set_keys <config.toml> <model> <effort> -- the edit; always exits 0.
+set_keys() {
+    python3 -I - "$1" "$2" "$3" <<'PY'
+import os, re, stat, sys, tempfile
+
+def note(msg):
+    print(f"clai/30-model: {msg}; skipping", file=sys.stderr)
+    sys.exit(0)
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    note("python3 has no tomllib (Python 3.11 or later is needed)")
+
+path, model, effort = sys.argv[1:4]
+KEYS = {"model": model, "model_reasoning_effort": effort}
+SAFE = re.compile(r"^[A-Za-z0-9._:/-]+$")
+for name, value in KEYS.items():
+    if not SAFE.match(value):
+        note(f"refusing {name} value {value!r}: not a plain name")
+
+real = os.path.realpath(path)
+try:
+    with open(real, "rb") as fh:
+        raw = fh.read()
+    text = raw.decode("utf-8")
+    old = tomllib.loads(text)
+except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as err:
+    note(f"{path} cannot be read as TOML ({err})")
+
+KEY_LINE = re.compile(
+    r"""^[ \t]*(?:"(model|model_reasoning_effort)"|'(model|model_reasoning_effort)'|(model|model_reasoning_effort))[ \t]*="""
+)
+
+def scan(line, in_ml, depth):
+    """Carry multi-line string and bracket state across one line."""
+    i = 0
+    while i < len(line):
+        if in_ml:
+            close = line.find(in_ml, i)
+            if close == -1:
+                return in_ml, depth
+            i, in_ml = close + 3, None
+            continue
+        c = line[i]
+        if c == "#":
+            break
+        if line.startswith('"""', i) or line.startswith("'''", i):
+            in_ml, i = line[i:i + 3], i + 3
+            continue
+        if c == '"':
+            j = i + 1
+            while j < len(line) and line[j] != '"':
+                j += 2 if line[j] == "\\" else 1
+            i = j + 1
+            continue
+        if c == "'":
+            j = line.find("'", i + 1)
+            i = len(line) if j == -1 else j + 1
+            continue
+        if c in "[{":
+            depth += 1
+        elif c in "]}":
+            depth -= 1
+        i += 1
+    return in_ml, depth
+
+def key_line(name, eol):
+    return f'{name} = "{KEYS[name]}"{eol}'
+
+lines = text.splitlines(keepends=True)
+eol = "\r\n" if lines and lines[0].endswith("\r\n") else "\n"
+out, done = [], set()
+in_ml, depth, in_table = None, 0, False
+for line in lines:
+    at_structure = in_ml is None and depth == 0 and not in_table
+    if at_structure and re.match(r"^[ \t]*\[", line):
+        out.extend(key_line(k, eol) for k in KEYS if k not in done)
+        done.update(KEYS)
+        in_table = True
+    elif at_structure:
+        m = KEY_LINE.match(line)
+        if m:
+            name = next(g for g in m.groups() if g)
+            if name not in done:
+                ending = "\r\n" if line.endswith("\r\n") else ("\n" if line.endswith("\n") else "")
+                out.append(key_line(name, ending or eol))
+                done.add(name)
+            in_ml, depth = scan(line, in_ml, depth)
+            continue
+    out.append(line)
+    in_ml, depth = scan(line, in_ml, depth)
+missing = [k for k in KEYS if k not in done]
+if missing:
+    if out and not out[-1].endswith("\n"):
+        out[-1] += eol
+    out.extend(key_line(k, eol) for k in missing)
+new_text = "".join(out)
+
+if new_text == text:
+    sys.exit(0)
+try:
+    new = tomllib.loads(new_text)
+except tomllib.TOMLDecodeError:
+    note("the edit would not parse")
+if new != {**old, **KEYS}:
+    note("the edit would change more than the two keys")
+
+with open(real, "rb") as fh:
+    if fh.read() != raw:
+        note(f"{path} changed while it was being edited")
+mode = stat.S_IMODE(os.stat(real).st_mode)
+try:
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(real), prefix=".config.toml.")
+except OSError as err:
+    note(f"cannot create a temp file beside {real} ({err})")
+try:
+    with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+        fh.write(new_text)
+    os.chmod(tmp, mode)
+    os.replace(tmp, real)
+except OSError as err:
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
+    note(f"could not write {real} ({err})")
+PY
+}
+
+# --- Flow functions ---
+
+main() {
+    local toml
+    [[ -n "${HOME:-}" ]] || { note "HOME is not set; skipping"; exit 0; }
+    toml="${HOME}/.codex/config.toml"
+    [[ -f "${toml}" ]] || exit 0
+    command -v python3 >/dev/null 2>&1 || { note "python3 not found; skipping"; exit 0; }
+    set_keys "${toml}" \
+        "${CLAI_CODEX_MODEL:-gpt-6.1-terra}" \
+        "${CLAI_CODEX_REASONING_EFFORT:-medium}" || true
+    exit 0
+}
+
+main "$@"
