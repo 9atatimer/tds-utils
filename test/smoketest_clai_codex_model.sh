@@ -138,6 +138,67 @@ test_never_blocks_the_launch() {
     [[ "$(config "${home}")" == $'model = "unterminated' ]] || fail "broken: file was changed"
 }
 
+# Given a top-level multi-line string whose lines look like a key and a
+# table header, When the hook runs, Then the string's value is unchanged and
+# the top-level model is set.
+test_never_edits_inside_a_multi_line_string() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local home text
+    text=$'instructions = """\nmodel = "q"\n[notes]\n"""\nmodel = "gpt-5.6-terra"\n\n[t]\na = 1\n'
+    home=$(make_home mls "${text}")
+    run_hook "${home}" 2>/dev/null
+    # $(...) drops the string's trailing newline, so compare without it.
+    [[ "$(toml_get "${home}" instructions)" == $'model = "q"\n[notes]' ]] || fail "mls: the string changed"
+    [[ "$(toml_get "${home}" model)" == "gpt-6.1-terra" ]] || fail "mls: model is $(toml_get "${home}" model)"
+}
+
+# Given a quoted model key and an array whose lines start with "[", When the
+# hook runs, Then it sets the model and the array is unchanged.
+test_handles_quoted_keys_and_nested_arrays() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local home
+    home=$(make_home quoted $'"model" = "gpt-5.6-terra"\nx = [\n  ["a"],\n]\n\n[t]\na = 1\n')
+    run_hook "${home}" 2>/dev/null
+    [[ "$(toml_get "${home}" model)" == "gpt-6.1-terra" ]] || fail "quoted: model is $(toml_get "${home}" model)"
+    [[ "$(toml_get "${home}" x)" == "[['a']]" ]] || fail "quoted: array is $(toml_get "${home}" x)"
+}
+
+# Given config.toml is a symlink to a file elsewhere, When the hook runs,
+# Then the target is edited, the link stays a link, and the mode is kept.
+test_edits_through_a_symlink_and_keeps_the_mode() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local home target
+    home="${WORK}/link"
+    mkdir -p "${home}/.codex" "${WORK}/dotfiles"
+    target="${WORK}/dotfiles/codex.toml"
+    printf 'model = "gpt-5.6-terra"\n' >"${target}"
+    chmod 644 "${target}"
+    ln -s "${target}" "${home}/.codex/config.toml"
+    run_hook "${home}" 2>/dev/null
+    [[ -L "${home}/.codex/config.toml" ]] || fail "link: no longer a symlink"
+    grep -q 'gpt-6.1-terra' "${target}" || fail "link: target not edited"
+    [[ -n "$(find "${target}" -perm 644)" ]] || fail "link: mode changed"
+}
+
+# Given an override value that would inject TOML, When the hook runs, Then
+# it changes nothing.
+test_refuses_an_unsafe_override() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local home before
+    home=$(make_home inject "${SAMPLE}")
+    before=$(config "${home}")
+    run_hook "${home}" CLAI_CODEX_MODEL=$'x"\nsandbox_mode = "danger-full-access' 2>/dev/null
+    [[ "$(config "${home}")" == "${before}" ]] || fail "inject: the file changed"
+}
+
+# Given HOME is unset, When the hook runs, Then it exits 0.
+test_unset_home_never_blocks() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local rc=0
+    env -u HOME CLAI_AGENT=codex "${HOOK}" 2>/dev/null || rc=$?
+    [[ "${rc}" -eq 0 ]] || fail "no HOME: exit ${rc}, want 0"
+}
+
 # --- Main ---
 
 main() {
@@ -148,6 +209,11 @@ main() {
     test_is_idempotent
     test_honours_overrides
     test_never_blocks_the_launch
+    test_never_edits_inside_a_multi_line_string
+    test_handles_quoted_keys_and_nested_arrays
+    test_edits_through_a_symlink_and_keeps_the_mode
+    test_refuses_an_unsafe_override
+    test_unset_home_never_blocks
     if [[ "${TESTS_FAILED}" -gt 0 ]]; then
         echo "${TESTS_FAILED} failed check(s) in ${TESTS_RUN} tests"
         exit 1

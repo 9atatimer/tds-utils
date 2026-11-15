@@ -80,7 +80,15 @@ again.
 `medium`, the owner's choice for cost. 6.1-terra's own default effort is
 low, so the hook always writes the effort. It changes nothing else in the
 file, so a profile keeps its own model. `CLAI_CODEX_MODEL` and
-`CLAI_CODEX_REASONING_EFFORT` override it for one launch.
+`CLAI_CODEX_REASONING_EFFORT` override it for one launch; a value that is
+not a plain model or effort name is refused.
+
+The edit needs `python3` with `tomllib` (Python 3.11 or later) first on
+`PATH`; with the stock macOS Python 3.9 the hook says so and changes
+nothing. It writes the file only when the result reads back as the original
+with exactly those two keys set, so it never edits inside a multi-line
+string. A symlinked `config.toml` is edited in its target, and the file
+keeps its mode.
 
 The hook runs on `clai codex`. The Codex desktop app does not start
 through clai, but it reads the same file, so it picks the model up on its
