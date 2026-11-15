@@ -38,6 +38,8 @@ test = [
     # the declaration for the units it creates).
     "test/smoketest_dot_alias.sh",
     "test/smoketest_remvllm/06_secrets_refs.sh",
+    # Created by tds-utils PR#807, declared by it.
+    "test/smoketest_agent_budget.sh",
 ]
 
 [records]

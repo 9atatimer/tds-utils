@@ -14,8 +14,7 @@ at launch.
 - Tests: `test/smoketest_clai_omp_roles.sh`,
   `test/smoketest_clai_omp_cf_gateway.sh` (hermetic; both run in
   `dist-ci`).
-- What is live is the `release` worktree (`AGENT.md`, The Release
-  Worktree): a hook change on `master` reaches the machine at the next
+- What is live is the `release` worktree (`docs/ops/release-worktree.md`): a hook change on `master` reaches the machine at the next
   `bin/tds-release`.
 
 ---

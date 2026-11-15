@@ -1,26 +1,20 @@
-# AGENT.md — tds-utils
+# AGENT.md -- tds-utils
 
 It is very important you never do anything destructive to the git history.
 
 Agent skills are provisioned into `.claude/skills/` (and the peer agent
-dirs) from the canonical `template-tools/skills/` tree by `clai provision`
-at session start; the flat `prompts/` channel is retired (issue #179).
-Skill descriptions surface lazily -- load a skill's body the moment a task
-enters its territory, and only that one. The `sdlc` skill carries the
-always-in-effect laws and the station-to-station reading order.
-
-Two triggers are load-bearing enough to restate here:
+dirs) by `clai provision` at session start. Load a skill's body the moment
+a task enters its territory, and only that one; the `sdlc` skill carries
+the always-in-effect laws. Two triggers are load-bearing enough to restate:
 - Writing or reviewing tests -> the testing skill.
 - About to push code, create or review a PR, reply to PR feedback, or
-  subscribe to PR activity -> the github-workflow skill. The trigger is
-  the push/review boundary, not just opening a PR -- every interaction
-  with the remote counts.
+  subscribe to PR activity -> the github-workflow skill. Every interaction
+  with the remote counts, not just opening a PR.
 
 Repo-scoped radar data: `lmde/TECH_RADAR.md` (human-maintained -- audit
-and propose, never edit without approval). The provisioned tech-radar
-skill carries the fleet defaults and points here for LMDE specifics. A
-row is one line saying what the tool is for, LMDE-wide; rationale and
-project specifics go in issues, `TODO_PLAN.md`, or a skill.
+and propose, never edit without approval). A row is one line saying what
+the tool is for, LMDE-wide; rationale goes in issues, `TODO_PLAN.md`, or a
+skill.
 
 ## What This Project Is
 
@@ -36,6 +30,14 @@ See README.tds for the original description.
 - **Solve problems, don't work around them.** When a tool, command, or workflow
   produces broken output, diagnose the root cause and fix it. Do not silently
   switch to a different tool or manual approach to avoid the issue.
+- The global rule to decide rather than ask does not relax these two:
+  still propose before writing, and ask scope questions in prose.
+- Never force-push. Land changes only via a PR off a fresh branch; if the
+  designated branch is already merged, cut a new branch and open a new PR.
+- Lessons live at the narrowest layer whose readers need them (sdlc skill,
+  law 15): code comment (file-local) -> `docs/arch/` (component) -> this
+  file (repo) -> shared skill (fleet). `TODO_PLAN.md`'s Lessons Learned
+  holds only unsettled lessons on the work in progress.
 
 ## Platform & Shell
 
@@ -46,374 +48,37 @@ See README.tds for the original description.
   (e.g., `sed -i ''` not `sed -i`, `du -sm` is fine but watch for GNU-only flags.)
 - Linux scripts use **bash** (`#!/usr/bin/env bash`).
 
-## The Release Worktree -- What Is Live, and What Is Not
-
-**The dotfiles in this repo are the running configuration of the machine you
-are on -- but they go live on a release, not on a save.** `$HOME` symlinks do
-not resolve into this checkout. They resolve into the `release` worktree:
-
-```
-~/.zshrc  -> ~/workplace/.worktrees/tds-utils-release/macos/dot.zshrc
-~/.emacs.d -> ~/workplace/.worktrees/tds-utils-release/emacs/dot.emacs.d
-```
-
-Agent instruction files are not among them: `bin/agent-instructions` builds
-each agent's file from the release worktree into
-`~/.local/share/tds-utils/agents/` and owns its `$HOME` link
-(`docs/ops/clai.md`).
-
-`bin/tds-release-link` owns those links (`-n` to preview, `-r` to put them back
-on the primary checkout). Run it after creating the release worktree on a new
-machine; it is idempotent, and it only ever moves symlinks that already point
-into one of the two checkouts.
-
-It also maintains one pointer that is not a dotfile:
-
-```
-~/.tds/release -> ~/workplace/.worktrees/tds-utils-release
-```
-
-`PATH` and the two `dot.zshrc` source fallbacks key off that path rather than
-naming the worktree, because the startup files must also work on a machine that
-has no release worktree at all. Tier order, highest that exists wins:
-
-| tier | path | owner |
-|------|------|-------|
-| 1 | `~/.tds/dist/current` | `bin/tds-install` -- a real dist install |
-| 2 | `~/.tds/release` | `bin/tds-release-link` -- the release worktree |
-| 3 | `~/workplace/tds-utils` | nobody; fresh-clone fallback, live-editable |
-
-Tier 3 ranks last precisely because it is the one that changes under you.
-`tds_path_apply` filters entries by `-d`, so a missing tier simply drops out
-and a fresh clone still gets a working shell (issues #202, #235).
-
-### Three branches, three roles
-
-| where | branch | what it is |
-|-------|--------|------------|
-| `~/workplace/tds-utils` | `master` | the primary checkout: read, review, never live |
-| `~/workplace/.worktrees/tds-utils-release` | `release` | what the machine is actually running |
-| `~/workplace/.worktrees/tds-utils-<topic>` | `<topic>` | where you do the work |
-
-`release` is fast-forward only and is never committed to directly. It is
-always an exact commit of `master` that went through a PR -- so "what is
-running" is a point on the reviewed history, never a divergent head and never
-a half-finished edit.
-
-### Two release units: public and private
-
-`tds-release` does not know about emacs, zsh, the monitors or chores. It knows
-about a **release unit**: a repo with a `release` branch, a worktree checked
-out on it, a `NO.RELEASE` sentry, and a pointer under `~/.tds/`. There are two.
-
-| unit | repo | pointer | what it carries |
-|------|------|---------|-----------------|
-| public | `~/workplace/tds-utils` | `~/.tds/release` | the machine's public configuration: dotfiles, `bin/`, emacs |
-| private | `~/workplace/tds-internal` | `~/.tds/internal` | private machine data: manifests, routines, the chores herd |
-
-Both go through the identical flow and the identical guards. The difference is
-that **the private unit is optional**: most machines do not have that checkout,
-and its absence is a one-line skip, never an error. `tds-release` ships in the
-public repo and has to work on a machine that has never heard of tds-internal.
-
-Consumers address paths *under a pointer* rather than naming a worktree --
-`CHORES_HOME` is `~/.tds/internal/ops/chores`, set in `macos/dot.zshenv` when
-the pointer exists. Adding the next consumer needs no change to the release
-tooling, and that is the test of whether this stays one mechanism.
-
-Why it exists at all: the chores herd was first pointed straight at
-`~/workplace/tds-internal/ops/chores`, a working tree whose branch is
-arbitrary. It was on an unrelated branch, so the directory did not exist and
-`chores validate` reported `ok: 0 chore(s)` -- a scheduler about to be
-installed against nothing. Live config must never be read out of a
-branch-switchable checkout; that rule is not specific to dotfiles.
-
-### Releasing
-
-```zsh
-bin/tds-release -n              # what would go live in every unit
-bin/tds-release                 # release both units, push each
-bin/tds-release <sha>           # release a specific reviewed commit (public unit)
-bin/tds-release -f <sha>        # roll back (rewind release deliberately)
-bin/tds-release -u private      # one unit only
-bin/tds-release -u private -f <sha>   # ... including its rollback
-```
-
-That IS the install step for this machine. The moment `release` moves, the new
-config is what every new shell, editor, and agent session loads. Nothing else
-runs.
-
-A committish argument belongs to the unit you named with `-u`, or to the public
-unit when you name none; every other unit releases its own reviewed line
-(`master` here, `main` in tds-internal -- `tds-release` asks each repo rather
-than naming a branch).
-
-Three refusals are worth knowing before you hit them:
-
-- **A commit carrying `NO.RELEASE` is never released.** Everything on `master`
-  is releasable by default -- that is the whole point of the branch -- so a
-  commit that landed but is not yet fit to go live has to say so. Put the
-  reason in the file; `tds-release` prints it back at whoever hits the refusal:
-
-  ```zsh
-  echo "held: the ledger migration must be run by hand first" > NO.RELEASE
-  ```
-
-  The gate is on the file's PRESENCE, not its contents -- `touch NO.RELEASE`
-  holds a release just as firmly, and reports "(no reason recorded)". A gate
-  that only fired when the file had text in it would fail open on the most
-  obvious way to write one.
-
-  There is deliberately no override. `-f` rewinds; it does not release held
-  work. The way past a sentry is to remove it on `master` and release that
-  commit, which leaves the decision in the history where it can be reviewed
-  rather than in someone's shell.
-
-- **The target must be an ancestor of `origin/master`.** A topic commit can be
-  a perfectly clean fast-forward from `release` and still have skipped review,
-  so "fast-forwardable" is not the test -- "on reviewed history" is. `-f` lifts
-  the fast-forward requirement only; it does not lift this one. Merge it first.
-- **The release worktree must be clean**, and that is checked before the
-  already-current shortcut. A dirty release tree is a live-config problem
-  whether or not `HEAD` happens to sit on the commit you asked for, so
-  `tds-release` reports it rather than saying "up to date" over the top of it.
-  One exception: Docker Desktop rewrites its guarded PATH line in
-  `macos/dot.profile` / `macos/dot.zprofile` to an unguarded absolute-`$HOME`
-  form every time it starts. A file whose only change is that rewrite is
-  restored to `HEAD` (`-n` says it would) instead of refused; any other edit
-  still refuses (issue #262).
-
-One failure that is not a refusal and reads like a bug: `tds-release: fetch
-failed`, preceded by `Permission denied (publickey)`. That is the 1Password SSH
-agent being LOCKED -- `origin` is an SSH remote, and a locked agent still
-*lists* keys while failing to sign. The global HTTPS workaround
-(`git push https://github.com/...`, using gh's token) does not reach this: the
-fetch happens inside `tds-release`, which names `origin`. Unlock 1Password on
-the Mac and re-run. Nothing is half-done when it fails here -- it dies before
-touching `release`.
-
-### What this buys, and the one trap left
-
-Two hazards this arrangement removes, both of which used to bite hard:
-
-- **`git checkout <branch>` in the primary checkout no longer rewrites the
-  running shell config mid-session.** It used to: a branch predating a
-  `.zshenv` fix silently reinstated the bug in every shell spawned from that
-  moment on, including agent tool calls, and the failure surfaced later
-  somewhere unrelated.
-- **Editing `macos/dot.*` no longer takes effect immediately.** A half-finished
-  edit is now just an edit.
-
-The trap that remains: **never switch branches or edit inside the release
-worktree.** It is the one checkout where the old rules still apply in full --
-whatever is in it is what the machine is running right now. `bin/tds-release`
-refuses to release into a dirty tree for exactly this reason.
-
-That refusal also decides WHICH files may be symlinked out of the release
-worktree at all: **a file the machine writes at runtime must never be one of
-them.** `~/.claude/settings.json` is the worked example -- Claude Code rewrites
-it on a theme or plugin change, and `naatm-sandbox setup` rewrites its hook
-registration on every cache build. Symlinked, each of those writes lands in the
-release worktree and leaves it permanently dirty, so the next `bin/tds-release`
-refuses. Config in that shape gets a `clai.d/<agent>/pre/` hook that jq-merges
-only the keys this repo owns -- the `30-statusline` mould -- and the file itself
-stays a real file in `$HOME` (issue #267).
-
-Do topic work in its own worktree, per the global rule that worktrees live in
-`~/workplace/.worktrees/<repo>-<topic>`:
-
-```zsh
-git worktree add ~/workplace/.worktrees/tds-utils-<topic> -b <branch> master
-# then edit via: git -C ~/workplace/.worktrees/tds-utils-<topic> ...
-```
-
-### The global agent instruction file
-
-`clai.d/AGENT.global.md` is the core of the global instruction file for every
-agent on this machine (Claude Code, codex, opencode, omp). When it advances
-the public unit, `bin/tds-release` runs `bin/agent-instructions`, which joins it with each agent's
-`clai.d/<agent>/AGENT.<agent>.md` and links the result into that agent's home
-(`docs/ops/clai.md`). It is NOT this file: `AGENT.md` is repo-scoped instructions
-for working in tds-utils, `AGENT.global.md` is machine-scoped instructions that
-happen to be version-controlled here.
-
-It carries the `.global` suffix so that an agent working inside `clai.d/` does
-not auto-load it a second time as directory-scoped instructions.
-
-Editing it is a PR like any other change -- which is the point. Before this it
-was an untracked file in `~/.claude/`, edited in place with no review, no
-history, and no way for a second machine to have the same one.
-
-To TEST candidate shell config without installing it, point `ZDOTDIR` at a
-staging directory under `env -i`. That sources your candidates while
-`/etc/zshenv` and `/etc/zprofile` still run, so macOS `path_helper` stays in
-the loop -- which is exactly where the interesting bugs live:
-
-```zsh
-stage=$(mktemp -d)
-cp macos/dot.zshenv "$stage/.zshenv"
-cp macos/dot.zprofile "$stage/.zprofile"
-cp macos/dot.zshrc "$stage/.zshrc"
-
-# .zshenv + .zprofile only -- .zshrc is NOT sourced by a non-interactive shell
-env -i HOME="$HOME" ZDOTDIR="$stage" TERM=dumb /bin/zsh -lc 'command -v bash'
-
-# adds .zshrc; a shell with no terminal or with -c never starts tmux (issue
-# #427), so TMUX=probe is belt and braces, not load-bearing
-env -i HOME="$HOME" ZDOTDIR="$stage" TERM=dumb TMUX=probe /bin/zsh -lic \
-    'command -v bash' </dev/null
-```
-
-Match the shell shape to the file you are testing -- zsh sources a different
-set for each, and a green result from the wrong shape means nothing:
-
-| invocation | `.zshenv` | `.zprofile` | `.zshrc` |
-|------------|-----------|-------------|----------|
-| `zsh -c`   | yes       | no          | no       |
-| `zsh -lc`  | yes       | yes         | no       |
-| `zsh -ic`  | yes       | no          | yes      |
-| `zsh -lic` | yes       | yes         | yes      |
-
-Stage all three files regardless. An empty `ZDOTDIR` is not a neutral control
--- it means no dotfiles load at all, so you measure bare `path_helper` output
-and conclude the config is broken when you never loaded it.
-
-See `test/smoketest_shell_env.sh` for the worked version, and issue #176 for
-what it cost to find this out.
-
-To PROBE tmux, `-L <socket>` is not isolation: it separates the socket and
-nothing else. A new server still loads `~/.tmux.conf`, whose hooks run
-log-hoarder against the real `TDS_LOG_DIR`, and every server's first session
-is `$0` -- so a throwaway server claims `active/$0` and sets the live
-session's log tree aside (issue #503). Start probe servers with
-`tmux -L <socket> -f /dev/null`, and give anything that starts one itself
-(`tmux-launch`) a `HOME` with no `.tmux.conf` in it.
-
-Note that `CLAUDE.md` is itself a symlink to `AGENT.md` -- edit `AGENT.md`.
-
-## Putting a Machine on the Provisioning Rail
-
-`tds-release` makes this repo's config live. It does NOT make agent tooling
-current -- skills, `clai`, `ast-mcp`, `gadmin` come from `lmde acquire`, and
-nothing runs that by itself until the machine carries the session engine.
-
-A machine without it is not broken, it is SILENT: the committed
-`.claude/hooks/session-start.sh` walks its find-engine ladder, finds nothing,
-prints one line to stderr and exits 0. Sessions start normally with whatever
-tooling happened to be installed. That is how `ast-mcp` sat on 0.2.1 while
-the fleet pin said 0.4.0, and how `clai` stayed on a build that could not
-start on macOS (issue #232, template-tools#522).
-
-Two commands, once per machine:
-
-```zsh
-npm install -g @nine-at-a-time-media/sandbox   # the engine
-naatm-sandbox setup                            # seed + register the hook
-```
-
-`setup` seed-acquires the fleet, writes `~/.claude/hooks/naatm-session-start.sh`,
-and registers it in user-scope `~/.claude/settings.json`. From then on every
-new session acquires and provisions before you type anything.
-
-Three things worth knowing:
-
-- **No token needed.** `lmde acquire` resolves the credential from
-  `GH_PAT_NAATM_PACKAGES_RO`, then the deprecated `GH_AI_TOOLS_PAT`, then
-  your own `gh auth token`. A default `gh auth login` does NOT grant
-  `read:packages` though -- if installs 401, run
-  `gh auth refresh -h github.com -s read:packages`.
-- **Remove the older user-scope hook.** `~/.claude/hooks/session-start.sh`
-  (registered by `clai hooks install`) runs `clai provision` only, and
-  `naatm-sandbox-session-start` supersedes it -- acquire AND provision.
-  SANDBOX-LIFECYCLE.DESIGN.md D3 already records that the `clai hooks
-  install` call is "REMOVED -- superseded, not no-op"; a machine set up
-  before naatm-sandbox 0.6.0 still has the leftover. Left in place the two
-  disagree about symlink-vs-copy and rewrite each other's work every session.
-- **Check what you are running** with `lmde acquire --check`, which reports
-  each package as current or stale without installing anything. It is also
-  what `git-hooks/pre-push` runs.
-
-## Adherence: this repository is gated by its own engine
-
-`adherence.toml` declares `adherence/` by layer; `adherence-judge` in
-`dist-ci.yml` judges every change in its scope (`adherence/`,
-`adherence.toml` and any directory's `*/adherence.toml`, the two
-records, the radar and the gate files, per `changed-scopes.sh`), except
-a fork's PR, in the `ci` stage, and is in `gate`'s `needs`, so a
-`lowered` change cannot land
-(`docs/design/DESIGN.ARCH-ADHERENCE.md`,
-`docs/design/ARCHITECTURE.ARCH-ADHERENCE.md`; the rulings log is
-Issue#590). Two things to know before you measure locally:
-
-- `bin/adhere judge` on a laptop reads no reviews: outside the `ci` stage
-  the reviews port answers Unknown, so the newest landed revision of each
-  `adherence.toml` stands as that file's declaration in force, approved or
-  not, and the files in force are read as one (the governing
-  declarations). To see what CI sees -- the newest landing a code owner
-  approved or merged, read from
-  GitHub -- run `GITHUB_REPOSITORY=9atatimer/tds-utils
-  GITHUB_BASE_REF=master GITHUB_TOKEN=... bin/adhere --stage ci judge
-  --base <sha> --head <sha>`; in the `ci` stage without those, every
-  landing reads "reviews cannot be read" and the head's own declaration
-  counts only as widening (G9).
-- A judged check needs a judge. The hosted judge is bound in CI since
-  2026-11-07 (tds-utils PR#722): `dist-ci.yml` passes
-  `ADHERENCE_OP_SA_TOKEN`, and `adherence.yml` finds the judge's item by
-  tag. A judged finding can lower a change there, as a rule finding can.
-  On the laptop the judge is the door (`DECIDE_URL`); without it the
-  judged checks are coverage, and a change that touches a unit they read
-  is `inconclusive` at best, which exits 0 (Q10). `lowered` and `not run`
-  are what fail.
-- `Covered` lowers the verdict for every unit a change creates outside the
-  declaration in force, and a change's own widening of `adherence.toml`
-  counts only for PATHS it creates: a function added to a file that
-  existed at the base is "not judged under for this change; it takes
-  effect from the next change", so a PR cannot clear it alone. Declare
-  the file first, in its own PR (PR#698 is the shape), then merge master
-  into the PR that adds the function: the judge reads the declaration in
-  force from the history of the merge-base, so the branch has to contain
-  the declaring landing. Issue#699 asks whether the engine should key the
-  widening on units instead.
-- The judge fetches the engine (`bin/adhere`, `adherence/`) at the PR
-  head, not at master. A branch cut before an engine change on master
-  runs the old engine against the new workflow and dies on an unknown
-  option (`No such option '--stage'`, PR#676, 2026-11-06). Merge master
-  into the branch; nothing on the branch is wrong.
-- A new application function needs a row in the architecture record's
-  Use-case surface (its signature, or at least its name), or Public
-  surface flags every test that calls it: the check reads the use cases
-  from that section, not from the module map. PR#708 hit it when
-  `check_declarations` had no row.
-
-## Infrastructure
-
-The fleet's infrastructure-as-code lives in the private infra repo
-[tds-internal](https://github.com/9atatimer/tds-internal) under
-`ops/terraform/`; its `docs/policy/{INFRASTRUCTURE,TERRAFORM,CREDENTIALS}.md`
-are the rules and win over anything here. Load the shared `iac` skill
-the moment a task touches a cloud resource or a GitHub secret.
-
-This repo owns no long-lived cloud resource. Two things here look like
-infrastructure and are not:
-
-- `ops/terraform/remvllm/` -- a provisioning primitive inside the
-  `remvllm` CLI: a TTL'd GPU spot node that `remvllm up` creates and
-  `remvllm destroy` (or its watchdog) tears down, state kept per host by
-  the tool, credentials read at run time with `op read` and never
-  written to disk. It stays here by recorded exception (tds-internal
-  `ops/terraform/README.md`, "Modules that live elsewhere"), pending the
-  human's ruling in tds-internal `docs/design/DESIGN.infra-centralization.md`.
-- `lmde/` -- the local managed developer environment (kind, Caddy,
-  Grafana); it runs on the laptop, not in a cloud account.
-
-Secrets this repo's workflows read, names only (registry: tds-internal
-`ops/credentials/REGISTRY.md`): `GH_PAT_NAATM_PACKAGES_RO` and the
-deprecated `GH_AI_TOOLS_PAT` fallback, both on the Agents secrets
-surface, both `read:packages`.
-
-`docs/design/DEPLOY-SECRETS.DESIGN.md` (`GADMIN_VAULT`) is neither
-adopted nor rejected; tds-internal `docs/policy/CREDENTIALS.md` lists it
-as an open question.
+## What is live: the release worktree
+
+The dotfiles, `bin/` and emacs config here are the running configuration
+of this machine, but they go live on a release, not on a save: `$HOME`
+symlinks, `PATH` and `~/.tds/release` resolve into the `release` worktree
+(`~/workplace/.worktrees/tds-utils-release`), never into this checkout.
+`docs/ops/release-worktree.md` has the mechanics: the tiers, the public
+and private units, `NO.RELEASE`, rollback, and how to test shell config
+under `ZDOTDIR` and probe tmux without touching the live session.
+
+- `bin/tds-release` is the install step: `-n` previews, no argument
+  releases both units and pushes them. Merging to `master` deploys
+  nothing. Run it only when the owner tells you to in the session, and
+  run the copy on `PATH` (the release worktree's): the primary
+  checkout's copy can predate the release's own steps, and then skips
+  them silently (rebuilding the agent instruction files, say). Check
+  with `clai-health` afterwards.
+- Never switch branches or edit inside the release worktree; whatever is
+  in it is what the machine runs. `tds-release` refuses a dirty one.
+- A file the machine writes at runtime (`~/.claude/settings.json`) is
+  never symlinked out of the release worktree: give it a
+  `clai.d/<agent>/pre/` hook that merges only the keys this repo owns.
+- `clai.d/AGENT.global.md` (the core every agent loads) and
+  `clai.d/<agent>/AGENT.<agent>.md` (one agent's fragment) are the
+  machine's global agent instructions, not this file.
+  `bin/agent-instructions` builds and links them at release
+  (`docs/ops/clai.md`). Editing them is a PR like any other change.
+  `test/smoketest_agent_budget.sh` fails when one agent's global file
+  plus this file passes 32 KiB.
+- Agent tooling (skills, `clai`, `ast-mcp`, `gadmin`) becomes current
+  through `lmde acquire`, not `tds-release`: `docs/ops/provisioning-rail.md`.
 
 ## Repository Layout
 
@@ -463,7 +128,7 @@ Example skeleton:
 
 ```zsh
 #!/bin/zsh
-# script-name — one-line description
+# script-name -- one-line description
 
 set -euo pipefail
 
@@ -507,137 +172,34 @@ main "$@"
   2026-09-25: a spike runner left a registry credential on disk after
   `kill -TERM`). Only the named signal traps fire.
 
-## Agent Operating Rules
+## Landing, review and CI
 
-- Keep answers succinct and terse. Specificity is a virtue. No expository
-  filler. Stay on task. One or two sentences unless an explanation is
-  requested; if more detail is wanted, it will be asked for.
-- Do not volunteer generic/unprompted starting or onboarding advice; assume
-  you are stepping into a problem already in progress. This does NOT relax
-  the Workflow Rules above -- still propose before writing and ask clarifying
-  scope questions.
-- Always review the repo's CLAUDE.md/AGENT.md instructions.
-- In an ephemeral/sandboxed runtime the bash tool is a throwaway Docker
-  sandbox -- use it freely for self-computation there. Do NOT assume that
-  everywhere: on a real checkout (e.g. a laptop) bash affects the real disk
-  and network, so assume side effects unless you have confirmed you are in
-  the sandbox.
-- NEVER pull down and run a shell script (e.g. `curl ... | sh`). Install
-  software only through package managers that verify signed code.
-- NEVER set a timer, wakeup, or scheduled trigger to wake yourself up -- not
-  a single one, and never a recurring chain. Do the work now, then stop and
-  wait for the human to notify you. Never poll yourself -- it wastes quota.
-  The sole exception is a schedule the human starts explicitly (e.g. `/loop`):
-  honor exactly what was asked for and add no timers of your own on top.
-- Markdown is ASCII only. Use `--` not an em-dash, `->` and `<-` not arrow
-  glyphs, `...` not an ellipsis, straight quotes, and ASCII box-drawing
-  (`+ - |`) in diagrams. Never emit Unicode punctuation or symbols in a `.md`
-  file. Applies to newly written or edited prose; it does not mandate churning
-  untouched existing content.
-- When told to swarm-code a solution (e.g. `ultracode`), automatically open a
-  PR when the coding concludes -- do not wait to be asked -- then automatically
-  triage the reviewer's feedback per the github-workflow skill.
-- NEVER use interrogative prompts. Not choice menus, not "shall I proceed?",
-  not "which do you prefer?". Decide, state the decision and its reason in one
-  line, and act. Only ask when the answer is a value you cannot obtain or
-  derive (a credential, a name, a URL) -- then ask for that value directly.
-- NEVER force-push. Land changes only via a PR off a fresh branch; if the
-  designated branch is already merged, cut a new branch and open a new PR.
-- Lessons live at the narrowest layer whose readers need them (sdlc skill,
-  law 15): code comment (file-local) -> `docs/arch/` (component) -> this
-  file (repo) -> shared skill (fleet). `TODO_PLAN.md`'s Lessons Learned
-  holds only unsettled lessons on the work in progress; issues never hold
-  lessons -- they vanish when the root cause is fixed.
+- This repo lands PRs through tedium: `gate` (the `dist-ci.yml` job that
+  needs every other job) must be green on the PR head and on tedium's
+  staging commit, and a code owner's approval is required on every PR.
+  `review-settled` is off (always green). `docs/ops/tedium.md` has the
+  rules, the `hold` label and `tedium dryrun`.
+- A new CI job goes into `gate`'s `needs`, with `needs: changes` and a
+  scope in `.github/scripts/changed-scopes.sh`. Never a `paths:` filter:
+  a workflow that does not run never reports `gate`.
+- A tedium landing does not close issues: close them by hand with a
+  comment naming the PR.
+- `adherence-judge` gates changes to `adherence/`, `adherence.toml`, the
+  two Adherence records and the radar. Read `docs/ops/adherence.md`
+  before running `bin/adhere` locally or answering a verdict. A PR that
+  changes a gate file (`dist-ci.yml`, `changed-scopes.sh` or its test)
+  runs every job, the judge included, and the judge lowers it for each
+  code file it creates outside `adherence.toml`'s layers (Declared /
+  Covered): declare each new script or test there in the same PR.
+- The moment any PR interaction starts, load the github-workflow skill.
+  This repo carries the `/ocr` caller. Watch PRs through GitHub events,
+  never by polling.
 
-## Landing via tedium (issue #292)
+## Infrastructure
 
-This repo lands PRs through the tedium merge bot; the rules are in
-`tedium.toml` on `master` and the gates skill assumes what follows.
-
-- **Required checks.** `gate` (the `dist-ci.yml` job that needs every
-  other job) must be green on the PR head AND on the staging commit tedium
-  builds on `tedium/merge` (`status` in `tedium.toml`). The `master`
-  ruleset requires `gate` and a PR; only the tedium App may bypass it.
-- **`review-settled` is off: always green (owner ruling, 2026-10-18).**
-  The status still posts on every non-fork PR head, so any repo or
-  ruleset that names it keeps reporting, but `bin/review-settled` no
-  longer judges reviews or threads and never waits: it posts `success`
-  ("review-settled is off ... always green"). It was not in this repo's
-  `pr_status` or ruleset before either. The decision code
-  (`lib/review-settled.mjs`, `decide` in `bin/review-settled`) is kept and
-  tested; `main()` names the one line that turns it back on. The agentic
-  reviewer is OCR on Demand, summoned with a `/ocr` PR comment (this repo
-  carries the caller); Copilot and Codex review only when a HUMAN fires
-  the trigger, never an agent (gates skill, Reviewer Selection). Callers pinned
-  to an older tds-utils commit keep the old verdict until they bump.
-- **Reviewers** (who may `r+`) are the repo's direct collaborators with
-  push, synced by tedium. An agent acting under a reviewer's token is a
-  reviewer.
-- **Agents act as `9atatimer-bot`, never as the owner** (tds-internal#285).
-  The `CODEOWNERS` catch-all needs the owner's approval on every PR, and
-  GitHub refuses self-approval, so a PR an agent opens as `9atatimer` can
-  never be approved. Start laptop sessions with `bin/claude-as-bot`: the
-  bot's token as `GH_TOKEN` (the login Keychain once `bin/seed-bot-token`
-  has seeded it, else `TDS_BOT_GH_TOKEN_REF`, else the 1Password item
-  tagged `agents-gh-bot`), GitHub over HTTPS only, commits under the bot's
-  name. Seeded, neither it nor `asbot` asks 1Password. To run one command
-  as the bot from any session, use `bin/asbot <cmd>`. Cloud sessions get
-  the same by connecting claude.ai's GitHub integration as the bot.
-  - The Keychain is first because the variable cannot be trusted to be
-    unset. Long-running processes keep the environment they started
-    with: on 2026-11-10 tmux servers, omp, the `op` daemon and ChatGPT
-    still carried an `op://` value, so every session they started used
-    1Password and prompted, while the agent's own shell showed the
-    variable unset (PR#768). A variable unset in your shell says nothing
-    about another session's; `ps -E -p <pid>` shows what a process
-    inherited. A fast local source must come before one that prompts.
-  - Merging here ships nothing: `asbot` and `claude-as-bot` change on the
-    machine only at `bin/tds-release`, and a session started before it
-    keeps the old `PATH` copy.
-- **`gate` is the only name to add to.** A new CI job goes into `gate`'s
-  `needs`; a job outside it cannot block a landing. It also takes
-  `needs: changes` and a scope in `.github/scripts/changed-scopes.sh`: on a
-  PR, `dist-ci.yml` runs only the jobs the diff can affect (a docs-only PR
-  runs none), and `gate` counts a skipped job as a pass. A push runs
-  everything, so the staging commit is always fully gated. Never a
-  `paths:` filter: a workflow that does not run never reports `gate`.
-- **`hold` label** keeps a PR out of the queue. `tedium dryrun` builds it
-  on `tedium/try` without landing.
-- **CODEOWNERS** covers every path (`*`, tds-internal#285): every
-  landing needs a human owner's approval before tedium lands it. Agents
-  open PRs as `9atatimer-bot` so the owner can approve; a PR the owner
-  authored can never clear the check and is merged by hand.
-- **`tedium/merge` and `tedium/try` are the bot's build branches**: never
-  protect them, never commit to them, never base work on them.
-- **Closing keywords do not fire when tedium lands.** `Closes #N` in the
-  PR body links the issue (`closed_by_pull_requests` lists the merged PR),
-  but the issue stays open: observed on PRs #356 and #357, 2026-09-29.
-  After tedium merges, close the issue by hand with a comment naming the
-  PR.
-- Merging to `master` deploys nothing here -- `bin/tds-release` is a
-  separate step, run by the owner or by an agent the owner tells to run it
-  in the session -- which is why this repo is first in the go-live rollout.
-
-## Pull Request Review (do this WITHOUT being told)
-
-- The moment ANY PR interaction starts -- opening, a review comment, CI, a
-  reply -- ingest the github-workflow skill and triage strictly against
-  it. This is automatic; never wait to be told to load it.
-- When you AGREE with review feedback and push a load-bearing fix (it
-  changes behavior, a contract, a security property, a test's verdict, or
-  what a rule an agent or gate executes says), re-summon OCR with a fresh
-  `/ocr` comment so the next round fires; never a Copilot or Codex
-  trigger, which are the human's. A hygiene-only push (wording, typos, comments,
-  documentation accuracy) gets its SHA in the thread reply and NO
-  re-review. A PR whose every changed file is prose -- documentation,
-  and the skills, personas, this file, `clai.d/AGENT.global.md` and
-  prompts agents follow -- gets no agentic reviewer and no panel: the
-  author reads it for correctness, readability and specificity, and the
-  human review is still owed. A design or architecture record in phases 2
-  and 3 gets designomatic instead. CI workflows and gate configuration are
-  code and take the full ladder. The self-review skill, Documentation-only
-  changes, has the rule.
-- Reply to each comment and RESOLVE the thread as you address it; reject
-  ones you disagree with, on the thread, with a concrete reason.
-- Watch PRs via GitHub webhook EVENTS (the activity subscription), NEVER via
-  self-scheduled triggers or polling.
+This repo owns no long-lived cloud resource; the fleet's Terraform lives
+in tds-internal `ops/terraform/`, whose `docs/policy/` files are the
+rules. Load the `iac` skill the moment a task touches a cloud resource or
+a GitHub secret. `docs/ops/infrastructure.md` covers the two things here
+that look like infrastructure (`ops/terraform/remvllm/`, `lmde/`) and the
+secret names this repo's workflows read.

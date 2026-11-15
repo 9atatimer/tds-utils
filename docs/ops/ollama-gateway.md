@@ -29,8 +29,7 @@ a cloudflared tunnel and the LMDE proxy layer's deadline route. The edge
 | deadline route, `127.0.0.1:11436` | `com.tds.lmde.proxy-layer` (HAProxy) | `~/.local/share/lmde-proxy/routes/ollama-gateway.*` | the gateway's `setup.sh` installs the route; `lmde install proxy-layer` the layer |
 | Caddy (host vhosts, unrelated to the road) | Homebrew `caddy` service | `/opt/homebrew/etc/Caddyfile`, admin API on `~/.local/share/lmde-networking/run/caddy-admin.sock` | `lmde install networking` |
 
-What is live follows the `release` worktree (`AGENT.md`, The Release
-Worktree): a merged change reaches the laptop by `bin/tds-release`, then the
+What is live follows the `release` worktree (`docs/ops/release-worktree.md`): a merged change reaches the laptop by `bin/tds-release`, then the
 component's install.
 
 ## Install, upgrade, release

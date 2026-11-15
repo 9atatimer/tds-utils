@@ -186,6 +186,8 @@ jobs:
         run: /bin/bash test/smoketest_seed_ci_magic.sh
       - name: Smoketest clai.d/AGENT.global.md invariants
         run: /bin/bash test/smoketest_agent_global.sh
+      - name: Smoketest the agent-load budget for this repo
+        run: /bin/bash test/smoketest_agent_budget.sh
 
       # Hermetic: a fake HOME, a fake repo and synthetic Codex logs.
       - name: Smoketest bin/agent-load

@@ -23,7 +23,7 @@ claude, codex, opencode and omp; agy is out of use (Issue#794).
 
 | What | Source | How it gets there | When |
 |---|---|---|---|
-| Global instructions | `clai.d/AGENT.global.md` (every agent) plus `clai.d/<agent>/AGENT.<agent>.md` (that agent only, when it exists) | `bin/agent-instructions` joins them into `~/.local/share/tds-utils/agents/<agent>.md` and points the agent's link there | when `bin/tds-release` advances the public unit; otherwise run `agent-instructions` |
+| Global instructions | `clai.d/AGENT.global.md` (every agent) plus `clai.d/<agent>/AGENT.<agent>.md` (that agent only, when it exists) | `bin/agent-instructions` joins them, without their HTML comment blocks, into `~/.local/share/tds-utils/agents/<agent>.md` and points the agent's link there; `README.md` beside them says they are built | when `bin/tds-release` advances the public unit; otherwise run `agent-instructions` |
 | Repo instructions | the repo's `AGENT.md` (`CLAUDE.md` and `AGENTS.md` are symlinks to it) | the agent reads it from the repo | every session |
 | Skills | the Skills repo, acquired by `lmde acquire` | `clai provision` copies or links them into `.claude/skills`, `.codex/skills` and `.agents/skills` in each project | every `clai <agent>` launch (`clai.d/<agent>/pre/05-provision`) and every session-start hook |
 | MCP servers | the Skills repo's `mcp/manifest.json`, overlaid by `clai.d/mcp.json` | `clai provision` writes each agent's own config dialect | same as skills |
@@ -110,7 +110,15 @@ Codex, run the hook directly: `~/clai.d/codex/pre/30-model`.
 
 Write it in `clai.d/<agent>/AGENT.<agent>.md`, in the same style as the
 global file, land it, and run `bin/tds-release`. Only that agent's built
-file carries it.
+file carries it. Claude Code has one (`clai.d/claude/AGENT.claude.md`):
+the rules that name Claude Code's own tools. A fragment starts with an
+`<!-- AGENT.<agent>.md` header comment, and `test/smoketest_agent_global.sh`
+checks it like the core.
+
+Keep the core short: every agent loads it in every repo.
+`test/smoketest_agent_budget.sh` builds every agent's file from the
+checkout and fails when one, plus this repo's `AGENT.md`, passes the
+`agent-load` budget.
 
 ## Add an agent
 
