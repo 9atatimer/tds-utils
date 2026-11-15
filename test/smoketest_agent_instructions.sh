@@ -96,9 +96,25 @@ test_built_file_carries_no_comment_blocks() {
     # shellcheck disable=SC2016
     grep -qF 'CORE RULES with `<!--` inline' "${file}" || fail "comments: the core rule was lost"
     grep -q 'CODEX ONLY' "${file}" || fail "comments: the fragment was lost"
+    [[ -n "$(head -n 1 "${file}")" ]] || fail "comments: a blank line after a stripped block survived"
     grep -q 'agent-instructions' "${root}/home/.local/share/tds-utils/agents/README.md" 2>/dev/null \
         || fail "comments: no provenance note beside the built files"
     run_tool "${root}" check >/dev/null 2>&1 || fail "comments: check says a fresh build is stale"
+}
+
+# Given a good build, When a source gains a "<!--" that never closes, Then
+# the build fails and the last good file is kept, rather than the rest of
+# the source vanishing from a build that reads as current.
+test_an_unclosed_comment_fails_the_build() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local root before rc=0
+    root=$(make_world unclosed)
+    run_tool "${root}" >/dev/null 2>&1 || fail "unclosed: the first build failed"
+    before=$(cat "$(built "${root}" codex)")
+    printf 'NEW CORE\n<!-- never closed\nLATER RULE\n' >"${root}/src/clai.d/AGENT.global.md"
+    run_tool "${root}" >/dev/null 2>&1 || rc=$?
+    [[ "${rc}" -ne 0 ]] || fail "unclosed: the build exited 0"
+    [[ "$(cat "$(built "${root}" codex)")" == "${before}" ]] || fail "unclosed: the last good file was replaced"
 }
 
 # Given an existing link into a checkout (the hand-made kind), When
@@ -198,6 +214,7 @@ main() {
     WORK=$(mktemp -d)
     test_builds_and_links_each_installed_agent
     test_built_file_carries_no_comment_blocks
+    test_an_unclosed_comment_fails_the_build
     test_repoints_an_existing_symlink
     test_never_clobbers_a_regular_file
     test_check_finds_a_stale_file_and_changes_nothing

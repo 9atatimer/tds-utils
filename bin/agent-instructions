@@ -72,15 +72,18 @@ fragment_rel() { printf 'clai.d/%s/AGENT.%s.md\n' "$1" "$1"; }
 
 # strip_comments <file> -- the file without its HTML comment blocks (a block
 # opens with "<!--" at the start of a line and runs to the line holding
-# "-->"), nor the blank lines right after one. The agent loads the built file
-# verbatim, so a source's editor commentary would cost every session
-# (Issue#811). "<!--" inside a line is text and stays.
+# "-->", all of which goes, text after "-->" included), nor the blank lines
+# right after one. The agent loads the built file verbatim, so a source's
+# editor commentary would cost every session (Issue#811). "<!--" inside a
+# line is text and stays. A block that never closes fails, so the build
+# keeps the last good file instead of losing the rest of the source.
 strip_comments() {
     awk '
         !in_block && /^<!--/ { in_block = 1; skip_blank = 1 }
         in_block { if (index($0, "-->")) in_block = 0; next }
         skip_blank && /^[ \t]*$/ { next }
         { skip_blank = 0; print }
+        END { if (in_block) { print "agent-instructions: unclosed <!-- in " FILENAME > "/dev/stderr"; exit 1 } }
     ' "$1"
 }
 
