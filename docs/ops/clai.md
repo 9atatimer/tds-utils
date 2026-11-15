@@ -49,8 +49,9 @@ skills it last got: after a skills release run `lmde acquire`, then
 Codex does not send a fresh skill list when the app reopens a
 conversation, so do not count on a running conversation to see a new
 skill; start a new one, or have the agent read the `SKILL.md` by path
-(the `clai` skill, "When an agent sees new skills"). If `clai provision` refuses
-unedited skills as "local edits", that is template-tools Issue#1137.
+(the `clai` skill, "When an agent sees new skills"). If `clai provision`
+refuses unedited skills as "local edits", that is template-tools
+Issue#1137.
 
 ## Check the wiring
 
