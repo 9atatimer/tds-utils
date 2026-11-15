@@ -60,6 +60,11 @@ on:
   pull_request:
     paths: [.github/workflows/copilot-setup-steps.yml]
 
+# Every job declares its own permissions; this is the floor for a job
+# that does not, so the workflow never inherits the repository default.
+permissions:
+  contents: read
+
 jobs:
   # The job name is load-bearing: GitHub looks for exactly this name and
   # ignores everything else in the file. Only steps, permissions, runs-on,
@@ -72,7 +77,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Provision agent tooling (pinned clai bootstrap + clai provision)
         run: bash sandbox/provision.sh
         env:
