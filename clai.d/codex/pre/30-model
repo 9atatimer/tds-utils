@@ -142,7 +142,10 @@ with open(real, "rb") as fh:
     if fh.read() != raw:
         note(f"{path} changed while it was being edited")
 mode = stat.S_IMODE(os.stat(real).st_mode)
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(real), prefix=".config.toml.")
+try:
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(real), prefix=".config.toml.")
+except OSError as err:
+    note(f"cannot create a temp file beside {real} ({err})")
 try:
     with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
         fh.write(new_text)
