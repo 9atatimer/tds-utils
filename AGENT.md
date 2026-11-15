@@ -61,10 +61,12 @@ under `ZDOTDIR` and probe tmux without touching the live session.
 - `bin/tds-release` is the install step: `-n` previews, no argument
   releases both units and pushes them. Merging to `master` deploys
   nothing. Run it only when the owner tells you to in the session, and
-  run the copy on `PATH` (the release worktree's): the primary
-  checkout's copy can predate the release's own steps, and then skips
-  them silently (rebuilding the agent instruction files, say). Check
-  with `clai-health` afterwards.
+  run the copy on `PATH` (the release worktree's); it says so when the
+  copy that ran is not the released one. The steps that follow a
+  release (rebuilding the agent instruction files) live in
+  `bin/tds-post-release`, which runs from the released commit: add a new
+  step there, never to `tds-release`. Check with `clai-health`
+  afterwards.
 - Never switch branches or edit inside the release worktree; whatever is
   in it is what the machine runs. `tds-release` refuses a dirty one.
 - A file the machine writes at runtime (`~/.claude/settings.json`) is

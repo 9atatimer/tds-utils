@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# tds-post-release -- the steps that run once a commit of this repo goes live.
+#
+# bin/tds-release runs this from the release worktree it just advanced, so the
+# steps are always the released commit's own, whichever copy of tds-release
+# did the release (Issue#810: a release run from a stale checkout skipped a
+# step its copy did not know). Add a post-release step here, not to
+# tds-release.
+#
+# Usage: tds-post-release <release-worktree>
+# Exit: 0 every step ran; 1 a step failed (tds-release reports it and the
+# release stands); 2 usage error. Runbook: docs/ops/release-worktree.md.
+
+set -euo pipefail
+
+# --- Action functions ---
+
+note() { echo "tds-post-release: $*"; }
+
+# rebuild_agent_instructions <release-worktree> -- build and link each
+# agent's global instruction file from the commit that just went live.
+rebuild_agent_instructions() {
+    # TDS_AGENT_SOURCE is a test override; the release builds only from itself.
+    if ! env -u TDS_AGENT_SOURCE "$1/bin/agent-instructions"; then
+        note "bin/agent-instructions failed; run it again: $1/bin/agent-instructions"
+        return 1
+    fi
+}
+
+# --- Flow functions ---
+
+run_steps() {
+    local wt=$1 status=0
+    rebuild_agent_instructions "${wt}" || status=1
+    return "${status}"
+}
+
+# --- Main ---
+
+main() {
+    if [[ $# -ne 1 || ! -d "$1" ]]; then
+        echo "usage: tds-post-release <release-worktree>" >&2
+        exit 2
+    fi
+    run_steps "$1"
+}
+
+main "$@"
