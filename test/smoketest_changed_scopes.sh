@@ -89,6 +89,10 @@ test_operating_rules() {
         "$(classify "${d}" clai.d/claude/AGENT.claude.md)"
     assert_eq "AGENT.md runs the agent-load budget smoketest" "$(only smoketests)" \
         "$(classify "${d}" AGENT.md)"
+    assert_eq "the CLAUDE.md link agent-load reads runs the smoketests" "$(only smoketests)" \
+        "$(classify "${d}" CLAUDE.md)"
+    assert_eq "the AGENTS.md link agent-load reads runs the smoketests" "$(only smoketests)" \
+        "$(classify "${d}" AGENTS.md)"
 }
 
 test_catch_all() {

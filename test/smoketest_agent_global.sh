@@ -63,13 +63,18 @@ check() {
 fails() { ! "$@"; }
 
 run_real_file() {
+    local own frag name
+    # A file argument is checked as what its name says it is: the core keeps
+    # the at-a-glance list, and every file's header names that file.
+    own=$(basename "${TARGET}")
     printf 'real file: %s\n' "${TARGET}"
     check "is ASCII only" fails has_non_ascii "${TARGET}"
     check "has no numbered list items" fails has_numbered_item "${TARGET}"
-    check "keeps the at-a-glance list" has_glance_list "${TARGET}"
-    check "keeps the header comment" starts_with_header_comment "${TARGET}"
+    if [ "${own}" = "AGENT.global.md" ]; then
+        check "keeps the at-a-glance list" has_glance_list "${TARGET}"
+    fi
+    check "keeps the header comment" starts_with_header_comment "${TARGET}" "${own}"
     [ $# -eq 0 ] || return 0
-    local frag name
     for frag in "${REPO_DIR}"/clai.d/*/AGENT.*.md; do
         [ -f "${frag}" ] || continue
         name=$(basename "${frag}")

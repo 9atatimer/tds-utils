@@ -66,7 +66,12 @@ test_over_budget_fails() {
 # --- Main ---
 
 main() {
-    trap cleanup EXIT INT TERM HUP
+    trap cleanup EXIT
+    # A named-signal trap must also stop the run: cleanup returns, and bash
+    # would otherwise resume the suite with WORK deleted.
+    trap 'cleanup; exit 130' INT
+    trap 'cleanup; exit 143' TERM
+    trap 'cleanup; exit 129' HUP
     WORK=$(mktemp -d)
     test_every_agent_is_within_budget
     test_over_budget_fails
