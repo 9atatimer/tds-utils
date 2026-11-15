@@ -85,6 +85,10 @@ test_operating_rules() {
     printf 'The global agent file is operating rules, not prose\n'
     assert_eq "clai.d/AGENT.global.md runs its smoketest" "$(only smoketests)" \
         "$(classify "${d}" clai.d/AGENT.global.md)"
+    assert_eq "an agent's fragment runs the smoketests" "$(only smoketests)" \
+        "$(classify "${d}" clai.d/claude/AGENT.claude.md)"
+    assert_eq "AGENT.md runs the agent-load budget smoketest" "$(only smoketests)" \
+        "$(classify "${d}" AGENT.md)"
 }
 
 test_catch_all() {

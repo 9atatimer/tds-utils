@@ -25,9 +25,10 @@
 #     the catch-all's smoketests and shellcheck;
 #   - a shell file anywhere (by extension or shebang) runs smoketests,
 #     whose syntax sweep covers every tracked shell file;
-#   - clai.d/AGENT.global.md, the machine's agent instructions, runs
-#     smoketests: it is operating rules, not prose, and its smoketest
-#     guards its invariants;
+#   - clai.d/AGENT.global.md, an agent's clai.d/<agent>/AGENT.<agent>.md
+#     fragment and AGENT.md, the agent instructions, run smoketests: they
+#     are operating rules, not prose, and the smoketests guard their
+#     invariants and the agent-load budget;
 #   - Markdown elsewhere and docs/**/*.html run nothing;
 #   - anything else runs smoketests and shellcheck.
 #
@@ -92,7 +93,7 @@ scopes_for() {
         adherence/*) out="adherence" ;;
         adherence.toml | */adherence.toml | docs/design/*ARCH-ADHERENCE.md | lmde/TECH_RADAR.md) out="adherence" ;;
         .github/workflows/adherence.yml) out="adherence smoketests shellcheck" ;;
-        clai.d/AGENT.global.md) out="smoketests" ;;
+        clai.d/AGENT.global.md | clai.d/*/AGENT.*.md | AGENT.md) out="smoketests" ;;
         *) is_inert "${file}" || out="smoketests shellcheck" ;;
     esac
     # A declaration in any directory is the suite's input, whichever

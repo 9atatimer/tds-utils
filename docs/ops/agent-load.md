@@ -43,7 +43,9 @@ so its size is a cost of every session too. Paths under `$HOME` print
 from `~`, so the output can go in a public PR body.
 
 Exit status: 0 when every agent is within the budget, 1 when any agent is
-over it, 2 for a usage error. A gate can use the exit status directly.
+over it, 2 for a usage error. A gate can use the exit status directly:
+`test/smoketest_agent_budget.sh` runs it in `dist-ci` on every change to
+the global file, an agent's fragment or this repo's `AGENT.md`.
 
 Where each agent reads its files is the function `agent_files`. Change it
 there when an agent's files move.
