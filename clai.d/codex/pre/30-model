@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# 30-model -- clai pre-hook for codex: own Codex's default model and
+# reasoning effort in ~/.codex/config.toml.
+#
+# Sets the two top-level keys `model` and `model_reasoning_effort`, which
+# every Codex surface reads (the CLI, `codex exec`, and the desktop app on
+# its next start). Nothing else in the file is touched: not other keys, not
+# comments, not any table, so a profile keeps its own model.
+#
+#   model                   CLAI_CODEX_MODEL             (default gpt-6.1-terra)
+#   model_reasoning_effort  CLAI_CODEX_REASONING_EFFORT  (default medium)
+#
+# gpt-6.1-terra is the owner's choice over the 5.x terra models, and medium
+# the most cost-effective effort; 6.1-terra's own default is low, so the
+# effort is always written (owner, 2026-11-14).
+#
+# Fail-open, as every clai pre-hook must be: a pre-hook that exits non-zero
+# aborts the launch, so every path exits 0. It skips, writing nothing, when
+# config.toml is absent, when python3 has no tomllib to check it, or when the
+# file does not parse before or after the edit. The write is atomic.
+# Runbook: docs/ops/clai.md.
+
+set -uo pipefail
+
+# --- Action functions ---
+
+note() { echo "clai/30-model: $*" >&2; }
+
+# parses <file> -- 0 when the file is valid TOML; 1 when it is not or cannot
+# be checked.
+parses() {
+    python3 - "$1" <<'PY' 2>/dev/null
+import sys
+try:
+    import tomllib
+except ModuleNotFoundError:
+    sys.exit(1)
+try:
+    with open(sys.argv[1], "rb") as fh:
+        tomllib.load(fh)
+except Exception:
+    sys.exit(1)
+PY
+}
+
+# render <file> <model> <effort> -- the file with the two top-level keys set,
+# on stdout. A key that is missing goes in ahead of the first table.
+render() {
+    awk -v model="$2" -v effort="$3" '
+        function put_model()  { print "model = \"" model "\""; m = 1 }
+        function put_effort() { print "model_reasoning_effort = \"" effort "\""; e = 1 }
+        /^[ \t]*\[/ {
+            if (!intable) { if (!m) put_model(); if (!e) put_effort() }
+            intable = 1
+        }
+        !intable && /^[ \t]*model[ \t]*=/ { if (!m) put_model(); next }
+        !intable && /^[ \t]*model_reasoning_effort[ \t]*=/ { if (!e) put_effort(); next }
+        { print }
+        END { if (!intable) { if (!m) put_model(); if (!e) put_effort() } }
+    ' "$1"
+}
+
+# --- Flow functions ---
+
+set_model() {
+    local toml=$1 model=$2 effort=$3 tmp
+    [[ -f "${toml}" ]] || return 0
+    command -v python3 >/dev/null 2>&1 || { note "python3 not found; skipping"; return 0; }
+    parses "${toml}" || { note "${toml} cannot be checked or does not parse; skipping"; return 0; }
+    tmp=$(mktemp "${toml}.XXXXXX") || { note "cannot create a temp file; skipping"; return 0; }
+    if ! render "${toml}" "${model}" "${effort}" >"${tmp}"; then
+        rm -f "${tmp}"
+        note "could not render ${toml}; skipping"
+        return 0
+    fi
+    if cmp -s "${tmp}" "${toml}"; then
+        rm -f "${tmp}"
+        return 0
+    fi
+    if ! parses "${tmp}"; then
+        rm -f "${tmp}"
+        note "the edit would not parse; skipping"
+        return 0
+    fi
+    mv -f "${tmp}" "${toml}" || { rm -f "${tmp}"; note "could not write ${toml}"; return 0; }
+}
+
+# --- Main ---
+
+main() {
+    set_model "${HOME}/.codex/config.toml" \
+        "${CLAI_CODEX_MODEL:-gpt-6.1-terra}" \
+        "${CLAI_CODEX_REASONING_EFFORT:-medium}"
+    exit 0
+}
+
+main "$@"

@@ -73,6 +73,20 @@ checkout's, unless you mean to try that checkout's text. A regular file
 at an agent's link is never overwritten: move it aside, then run it
 again.
 
+## Codex's model
+
+`clai.d/codex/pre/30-model` owns the two top-level keys `model` and
+`model_reasoning_effort` in `~/.codex/config.toml`: `gpt-6.1-terra` at
+`medium`, the owner's choice for cost. 6.1-terra's own default effort is
+low, so the hook always writes the effort. It changes nothing else in the
+file, so a profile keeps its own model. `CLAI_CODEX_MODEL` and
+`CLAI_CODEX_REASONING_EFFORT` override it for one launch.
+
+The hook runs on `clai codex`. The Codex desktop app does not start
+through clai, but it reads the same file, so it picks the model up on its
+next start after any `clai codex` launch. To apply it without launching
+Codex, run the hook directly: `~/clai.d/codex/pre/30-model`.
+
 ## Give one agent a rule no other agent should load
 
 Write it in `clai.d/<agent>/AGENT.<agent>.md`, in the same style as the
