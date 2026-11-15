@@ -110,7 +110,15 @@ Codex, run the hook directly: `~/clai.d/codex/pre/30-model`.
 
 Write it in `clai.d/<agent>/AGENT.<agent>.md`, in the same style as the
 global file, land it, and run `bin/tds-release`. Only that agent's built
-file carries it.
+file carries it. Claude Code has one (`clai.d/claude/AGENT.claude.md`):
+the rules that name Claude Code's own tools. A fragment starts with an
+`<!-- AGENT.<agent>.md` header comment, and `test/smoketest_agent_global.sh`
+checks it like the core.
+
+Keep the core short: every agent loads it in every repo.
+`test/smoketest_agent_budget.sh` builds every agent's file from the
+checkout and fails when one, plus this repo's `AGENT.md`, passes the
+`agent-load` budget.
 
 ## Add an agent
 

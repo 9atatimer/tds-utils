@@ -44,8 +44,9 @@ has_glance_list() {
          END {exit !(n > 0)}' "$1"
 }
 
-# starts_with_header_comment <file> -- the release/symlink explainer must stay.
-starts_with_header_comment() { head -n 1 "$1" | grep -q '^<!-- AGENT.global.md'; }
+# starts_with_header_comment <file> [name] -- the explainer comment must stay;
+# name defaults to AGENT.global.md.
+starts_with_header_comment() { head -n 1 "$1" | grep -qF "<!-- ${2:-AGENT.global.md}"; }
 
 # --- Flow functions ---
 
@@ -62,11 +63,26 @@ check() {
 fails() { ! "$@"; }
 
 run_real_file() {
+    local own frag name
+    # A file argument is checked as what its name says it is: the core keeps
+    # the at-a-glance list, and every file's header names that file.
+    own=$(basename "${TARGET}")
     printf 'real file: %s\n' "${TARGET}"
     check "is ASCII only" fails has_non_ascii "${TARGET}"
     check "has no numbered list items" fails has_numbered_item "${TARGET}"
-    check "keeps the at-a-glance list" has_glance_list "${TARGET}"
-    check "keeps the header comment" starts_with_header_comment "${TARGET}"
+    if [ "${own}" = "AGENT.global.md" ]; then
+        check "keeps the at-a-glance list" has_glance_list "${TARGET}"
+    fi
+    check "keeps the header comment" starts_with_header_comment "${TARGET}" "${own}"
+    [ $# -eq 0 ] || return 0
+    for frag in "${REPO_DIR}"/clai.d/*/AGENT.*.md; do
+        [ -f "${frag}" ] || continue
+        name=$(basename "${frag}")
+        printf 'fragment: %s\n' "${frag#"${REPO_DIR}"/}"
+        check "${name} is ASCII only" fails has_non_ascii "${frag}"
+        check "${name} has no numbered list items" fails has_numbered_item "${frag}"
+        check "${name} keeps its header comment" starts_with_header_comment "${frag}" "${name}"
+    done
 }
 
 run_fixtures() {
@@ -82,13 +98,15 @@ run_fixtures() {
     check "flags a parenthesised numbered item" has_numbered_item "${WORKROOT}/numbered-paren.md"
     check "flags an empty at-a-glance section" fails has_glance_list "${WORKROOT}/empty-glance.md"
     check "flags a missing header comment" fails starts_with_header_comment "${WORKROOT}/no-header.md"
+    check "flags a fragment's header naming another file" \
+        fails starts_with_header_comment "${REPO_DIR}/clai.d/AGENT.global.md" AGENT.claude.md
 }
 
 main() {
-    run_real_file
+    run_real_file "$@"
     run_fixtures
     printf '\n%d run, %d failed\n' "${TESTS_RUN}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]
 }
 
-main
+main "$@"
