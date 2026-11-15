@@ -116,12 +116,13 @@ bot review. When a round brings no value, stop requesting rounds;
 `review-settled` going red on a stale review is not a reason to spend a
 run.
 
-A documentation-only PR -- every changed file is human-read prose -- gets
-no agentic reviewer: the adversarial self-review is sufficient,
-except that design and architecture records in phases 2 and 3 get
-designomatic. Skills, personas, `AGENT.md`, prompts, CI workflows and
-gate configuration are operating rules, not documentation; a PR touching
-them takes the full review ladder.
+A PR whose every changed file is prose -- documentation, and the skills,
+personas, `AGENT.md` and prompts agents follow -- gets no agentic
+reviewer and no panel: the author reads it once for correctness,
+readability and specificity, and a fresh reviewer on a cheaper model reads
+it only when it is large (owner, 2026-11-14). Design and architecture
+records in phases 2 and 3 get designomatic. CI workflows and gate
+configuration are code: a PR touching them takes the full review ladder.
 
 Triage with backbone: fix what is genuinely broken and reject the rest on
 the thread in one line. Every finding gets a recorded disposition,

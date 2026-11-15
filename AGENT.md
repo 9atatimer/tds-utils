@@ -629,17 +629,14 @@ This repo lands PRs through the tedium merge bot; the rules are in
   `/ocr` comment so the next round fires; never a Copilot or Codex
   trigger, which are the human's. A hygiene-only push (wording, typos, comments,
   documentation accuracy) gets its SHA in the thread reply and NO
-  re-review. A documentation-only PR (every changed file is human-read
-  prose) gets the adversarial self-review alone -- no agentic reviewer;
-  a design or architecture record in phases 2 and 3 gets designomatic
-  instead. Skills, personas, this file, `clai.d/AGENT.global.md`, prompts,
-  CI workflows and gate configuration are operating rules, not
-  documentation: a PR touching them takes the full ladder. OCR skips
-  Markdown, so a PR whose every changed file is Markdown never posts
-  `/ocr`, operating rules included: the three-panelist self-review is
-  its agentic rung and the human review is still owed (Skills
-  issue#193). The gates skill, Spend Review Turns on Load-Bearing Fixes,
-  has the rule.
+  re-review. A PR whose every changed file is prose -- documentation,
+  and the skills, personas, this file, `clai.d/AGENT.global.md` and
+  prompts agents follow -- gets no agentic reviewer and no panel: the
+  author reads it for correctness, readability and specificity, and the
+  human review is still owed. A design or architecture record in phases 2
+  and 3 gets designomatic instead. CI workflows and gate configuration are
+  code and take the full ladder. The self-review skill, Documentation-only
+  changes, has the rule.
 - Reply to each comment and RESOLVE the thread as you address it; reject
   ones you disagree with, on the thread, with a concrete reason.
 - Watch PRs via GitHub webhook EVENTS (the activity subscription), NEVER via
