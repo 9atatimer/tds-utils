@@ -70,6 +70,53 @@ test_builds_and_links_each_installed_agent() {
     [[ ! -e "${root}/home/.omp" ]] || fail "omp is not installed but got a directory"
 }
 
+# Given sources that open with HTML comment blocks (a one-line and a
+# multi-line one) and a rule that mentions `<!--` inline, When
+# agent-instructions runs, Then the built file carries no comment block, the
+# rules and the inline mention survive, and the provenance note is a file
+# beside the built files instead (Issue#811: Claude Code loads CLAUDE.md
+# verbatim, comments included).
+test_built_file_carries_no_comment_blocks() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local root out file
+    root=$(make_world comments)
+    # The backticks are Markdown, not a command substitution.
+    # shellcheck disable=SC2016
+    printf '<!-- core header\n     second line -->\n\nCORE RULES with `<!--` inline\n' \
+        >"${root}/src/clai.d/AGENT.global.md"
+    printf '<!-- codex header -->\nCODEX ONLY\n' >"${root}/src/clai.d/codex/AGENT.codex.md"
+    out=$(run_tool "${root}" 2>&1) || fail "comments: non-zero exit: ${out}"
+    file=$(built "${root}" codex)
+    if grep -q '^<!--' "${file}"; then
+        fail "comments: a comment block survived: $(grep -n '^<!--' "${file}" | head -1)"
+    fi
+    if grep -q 'second line' "${file}"; then
+        fail "comments: a multi-line comment's body survived"
+    fi
+    # shellcheck disable=SC2016
+    grep -qF 'CORE RULES with `<!--` inline' "${file}" || fail "comments: the core rule was lost"
+    grep -q 'CODEX ONLY' "${file}" || fail "comments: the fragment was lost"
+    [[ -n "$(head -n 1 "${file}")" ]] || fail "comments: a blank line after a stripped block survived"
+    grep -q 'agent-instructions' "${root}/home/.local/share/tds-utils/agents/README.md" 2>/dev/null \
+        || fail "comments: no provenance note beside the built files"
+    run_tool "${root}" check >/dev/null 2>&1 || fail "comments: check says a fresh build is stale"
+}
+
+# Given a good build, When a source gains a "<!--" that never closes, Then
+# the build fails and the last good file is kept, rather than the rest of
+# the source vanishing from a build that reads as current.
+test_an_unclosed_comment_fails_the_build() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    local root before rc=0
+    root=$(make_world unclosed)
+    run_tool "${root}" >/dev/null 2>&1 || fail "unclosed: the first build failed"
+    before=$(cat "$(built "${root}" codex)")
+    printf 'NEW CORE\n<!-- never closed\nLATER RULE\n' >"${root}/src/clai.d/AGENT.global.md"
+    run_tool "${root}" >/dev/null 2>&1 || rc=$?
+    [[ "${rc}" -ne 0 ]] || fail "unclosed: the build exited 0"
+    [[ "$(cat "$(built "${root}" codex)")" == "${before}" ]] || fail "unclosed: the last good file was replaced"
+}
+
 # Given an existing link into a checkout (the hand-made kind), When
 # agent-instructions runs, Then the link is repointed at the built file.
 test_repoints_an_existing_symlink() {
@@ -166,6 +213,8 @@ main() {
     trap cleanup EXIT INT TERM HUP
     WORK=$(mktemp -d)
     test_builds_and_links_each_installed_agent
+    test_built_file_carries_no_comment_blocks
+    test_an_unclosed_comment_fails_the_build
     test_repoints_an_existing_symlink
     test_never_clobbers_a_regular_file
     test_check_finds_a_stale_file_and_changes_nothing

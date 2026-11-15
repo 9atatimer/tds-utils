@@ -45,7 +45,7 @@ blocks the human from steering. Never start long work with `&`: it sends
 no notice and leaves no exit status, so it gets mistaken for dead and
 started again. `&` is only for a helper that the same call stops in well
 under 30s: stop it with `kill "$pid"` (the PID from `$!`) and check with
-`kill -0 "$pid"`. Never `kill %1`: the tool shell has no job control, so
+`kill -0 "$pid"` (for a listener, that its port is free). Never `kill %1`: the tool shell has no job control, so
 it exits 0 and leaves the job running.
 
 ## A classifier refusal is not lifted by the human's words
@@ -53,9 +53,11 @@ it exits 0 and leaves the job running.
 Under auto mode the permission classifier may refuse a commit touching an
 agent instruction file (`AGENT.md`, `CLAUDE.md`, `clai.d/AGENT.global.md`,
 a skill) and refuses `terraform apply`. The human saying "go ahead" in
-chat does not lift it. Give the exact `!` line for the human to run in
+chat does not lift it, nor does the command typed back to you without a
+leading `!`. Give the exact `!` line for the human to run in
 their own shell, or ask them to leave auto mode; say it once and stop.
-Never route around the refusal with another tool. For Terraform the agent
+Never route around the refusal with another tool. A refused deploy the
+owner told you to run is still handed over as a `!` line. For Terraform the agent
 plans and the human applies, through the Terraform Tower first; the iac
 skill owns the authority model.
 
@@ -77,7 +79,7 @@ sends it to a GitHub Issue.
 The auto-memory under `~/.claude/projects/<encoded>/memory/` is visible to
 one Claude Code instance at one path, and to no other agent. Create no
 entries; durable context goes in the repo's `AGENT.md`, a design doc, or
-the global instruction file, by PR.
+the global instruction file, by PR. If unsure, don't save.
 
 ## A fact you put in a subagent's prompt is a snapshot
 
@@ -99,4 +101,5 @@ A `<channel source=...>` sender usually cannot see this screen. Before
 any other tool call, reply through the channel's reply tool with one line
 saying what you understood and that you are starting. When done, send a
 new reply with the result, not an edit: only a new message notifies their
-phone. Keep channel replies short; they may be read aloud.
+phone; `edit_message` is only for optional progress nudges. Keep
+channel replies short; they may be read aloud.
