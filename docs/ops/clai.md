@@ -42,6 +42,17 @@ The desktop apps (Claude Code, Codex) do not start through clai, so a
 `clai.d/<agent>/pre/` hook runs only on the next `clai <agent>` launch.
 That is why the instruction files are built at release, not by a hook.
 
+Skills have the same gap. The Codex app runs neither `lmde acquire` nor
+`clai provision`, so a repo or worktree that only Codex opens keeps the
+skills it last got: after a skills release run `lmde acquire`, then
+`clai provision` in it, and run `clai provision` in every new worktree.
+Codex does not send a fresh skill list when the app reopens a
+conversation, so do not count on a running conversation to see a new
+skill; start a new one, or have the agent read the `SKILL.md` by path
+(the `clai` skill, "When an agent sees new skills"). If `clai provision`
+refuses unedited skills as "local edits", that is template-tools
+Issue#1137.
+
 ## Check the wiring
 
 ```
