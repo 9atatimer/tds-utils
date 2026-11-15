@@ -375,6 +375,72 @@ case_release_without_the_tool_says_so() {
     assert "says not rebuilt"   "grep -q 'not rebuilt' '${WORKROOT}/out'"
 }
 
+# make_repo_with_post_release <name> <post-release-file> -- make_repo, where
+# master's tip adds the given file as bin/tds-post-release and a stub
+# bin/agent-instructions that records its run in $MARK. Echoes the repo root.
+make_repo_with_post_release() {
+    local name="$1" post="$2" root
+    root="$(make_repo_with_agent_tool "${name}" 0)"
+    cp "${post}" "${root}/bin/tds-post-release"
+    chmod +x "${root}/bin/tds-post-release"
+    printf '#!/bin/sh\n# the released copy\n' > "${root}/bin/tds-release"
+    git -C "${root}" add bin/tds-post-release bin/tds-release
+    git -C "${root}" commit -qm "post-release steps"
+    printf '%s\n' "${root}"
+}
+
+# Issue#810: a tds-release older than the commit it releases skipped that
+# commit's post-release steps. The released tree's bin/tds-post-release is
+# what runs them, whichever copy of tds-release did the release.
+case_release_runs_the_released_post_release_steps() {
+    bold "case: the released commit's own bin/tds-post-release runs the post-release steps"; echo
+    local root rc mark="${WORKROOT}/mark-post" stub="${WORKROOT}/post-stub"
+    printf '#!/bin/sh\necho "post ran for $1" >> "$MARK"\n' > "${stub}"
+    root="$(make_repo_with_post_release postown "${stub}")"
+    MARK="${mark}" run_release "${root}" && rc=0 || rc=$?
+    assert "exits 0"                          "[ ${rc} -eq 0 ]"
+    assert "the released post-release ran for the release worktree" \
+        "grep -q 'post ran for .*/postown-release$' '${mark}'"
+    assert "the releaser did not also run its own rebuild" "! grep -qx 'ran' '${mark}'"
+    assert "says the running releaser is not the released one" \
+        "grep -q 'not the released' '${WORKROOT}/out'"
+}
+
+case_a_failing_post_release_leaves_the_release_standing() {
+    bold "case: a failing released bin/tds-post-release is reported, and the release stands"; echo
+    local root rc stub="${WORKROOT}/post-fail-stub"
+    printf '#!/bin/sh\nexit 3\n' > "${stub}"
+    root="$(make_repo_with_post_release postfail "${stub}")"
+    run_release "${root}" && rc=0 || rc=$?
+    assert "exits 0"                          "[ ${rc} -eq 0 ]"
+    assert "release advanced to master" \
+        "[ \"$(head_of "$(release_wt postfail)")\" = \"$(git -C "${root}" rev-parse master)\" ]"
+    assert "the failure is named"             "grep -q 'post-release steps failed' '${WORKROOT}/out'"
+}
+
+case_the_released_copy_says_nothing_about_itself() {
+    bold "case: a release by a copy identical to the released one does not warn"; echo
+    local root rc stub="${WORKROOT}/post-quiet-stub"
+    printf '#!/bin/sh\nexit 0\n' > "${stub}"
+    root="$(make_repo_with_post_release postsame "${stub}")"
+    cp "${RELEASER}" "${root}/bin/tds-release"
+    git -C "${root}" add bin/tds-release
+    git -C "${root}" commit -qm "the released copy is the running one"
+    run_release "${root}" && rc=0 || rc=$?
+    assert "exits 0"                          "[ ${rc} -eq 0 ]"
+    assert "no not-the-released note"         "! grep -q 'not the released' '${WORKROOT}/out'"
+}
+
+case_the_real_post_release_rebuilds_once() {
+    bold "case: this repo's bin/tds-post-release rebuilds the agent instruction files once"; echo
+    local root rc mark="${WORKROOT}/mark-real-post"
+    root="$(make_repo_with_post_release postreal "$(dirname "${RELEASER}")/tds-post-release")"
+    TDS_AGENT_SOURCE="${WORKROOT}/elsewhere" MARK="${mark}" run_release "${root}" && rc=0 || rc=$?
+    assert "exits 0"                          "[ ${rc} -eq 0 ]"
+    assert "agent-instructions ran once, without the override" \
+        "[ \"$(cat "${mark}" 2>/dev/null)\" = ran ]"
+}
+
 case_private_unit_advances() {
     bold "case: the private unit is released alongside the public one"; echo
     local pub priv rc
@@ -642,6 +708,10 @@ main() {
     case_empty_sentry_blocks_release
     case_whitespace_sentry_blocks_release
     case_release_rebuilds_agent_instructions
+    case_release_runs_the_released_post_release_steps
+    case_the_real_post_release_rebuilds_once
+    case_a_failing_post_release_leaves_the_release_standing
+    case_the_released_copy_says_nothing_about_itself
     case_agent_instructions_failure_does_not_fail_release
     case_release_ignores_a_stray_agent_source
     case_release_without_the_tool_says_so

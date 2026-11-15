@@ -185,7 +185,7 @@ git worktree add ~/workplace/.worktrees/tds-utils-<topic> -b <branch> master
 
 `clai.d/AGENT.global.md` is the core of the global instruction file for every
 agent on this machine (Claude Code, codex, opencode, omp). When it advances
-the public unit, `bin/tds-release` runs `bin/agent-instructions`, which joins it with each agent's
+the public unit, `bin/tds-release` runs the released `bin/tds-post-release`, which runs `bin/agent-instructions`, which joins it with each agent's
 `clai.d/<agent>/AGENT.<agent>.md` and links the result into that agent's home
 (`docs/ops/clai.md`). It is NOT this file: `AGENT.md` is repo-scoped instructions
 for working in tds-utils, `AGENT.global.md` is machine-scoped instructions that

@@ -405,6 +405,26 @@ rebuild_agent_instructions() {
         || note "public: bin/agent-instructions failed; run it again: ${tool}"
 }
 
+# run_post_release <release-worktree> -- the released commit's own
+# bin/tds-post-release runs the post-release steps, so a step a newer commit
+# adds runs even when an older copy of this script did the release
+# (Issue#810). A commit from before that file (a rollback) gets the one step
+# this script knows. Either way a failure is reported and the release stands.
+run_post_release() {
+    local wt="$1" self post="$1/bin/tds-post-release"
+    self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    if [ -f "${wt}/bin/tds-release" ] && ! cmp -s "${self}" "${wt}/bin/tds-release"; then
+        note "public: ran ${self}, not the released ${wt}/bin/tds-release; run the tds-release on PATH"
+    fi
+    if [ -x "${post}" ]; then
+        note "public: running the released ${post}"
+        env -u TDS_AGENT_SOURCE "${post}" "${wt}" \
+            || note "public: post-release steps failed; run them again: ${post} ${wt}"
+        return 0
+    fi
+    rebuild_agent_instructions "${wt}"
+}
+
 # apply_plan <plan-line> -- advance one unit that already passed every check.
 apply_plan() {
     local unit wt release_sha target_sha target
@@ -418,7 +438,7 @@ EOT
     advance_release "${wt}" "${release_sha}" "${target_sha}"
     note "${unit}: released to $(describe "${wt}" HEAD)"
     push_release "${wt}" "${force}"
-    [ "${unit}" != public ] || rebuild_agent_instructions "${wt}"
+    [ "${unit}" != public ] || run_post_release "${wt}"
 }
 
 # run_units -- CHECK every selected unit, then advance them. Two passes, not
