@@ -191,6 +191,8 @@ jobs:
         run: /bin/bash test/smoketest_agent_instructions.sh
       - name: Smoketest bin/clai-health
         run: /bin/bash test/smoketest_clai_health.sh
+      - name: Smoketest clai.d/codex/pre/30-model
+        run: /bin/bash test/smoketest_clai_codex_model.sh
 
       # Hermetic: the alias file sourced under bash with a fake ssh on PATH.
       - name: Smoketest macos/dot.alias
