@@ -32,6 +32,9 @@ def split_front_matter(text: str) -> tuple[Mapping[str, object], str]:
         raise InvalidChore("missing front-matter fence")
     for i in range(1, len(lines)):
         if lines[i].strip() == _FRONT_MATTER_FENCE:
+            # YAML 1.1: unquoted off/on/yes/no/true/false load as booleans, so
+            # `name: off` or `command: [true]` fails a later string check that
+            # names the wrong field (Issue#821). Quote them in fixtures.
             data = yaml.safe_load("".join(lines[1:i])) or {}
             if not isinstance(data, Mapping):
                 raise InvalidChore("front-matter must be a mapping")

@@ -126,11 +126,3 @@ an issue, and an open PR on the same files is a conflict to resolve with the
 owner, not to flag. Proposal for the github-workflow skill: before changing
 a file, list the open PRs that touch it; self-assign or comment "taking
 this" first.
-
-### YAML front-matter turns `off` and `true` into booleans
-
-about: chores/src/chores/adapters/definitions.py
-
-A chore named `off` and a command `[true]` failed validation with messages
-naming the wrong field. The loader should reject non-string scalars with a
-message naming YAML 1.1 booleans; quote them in fixtures meanwhile.

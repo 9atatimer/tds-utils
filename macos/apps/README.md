@@ -30,6 +30,12 @@ Bundles are built, not committed: they are ad-hoc signed per machine and
 reference this checkout's absolute path. Re-run `build` after moving the
 checkout.
 
+Build from the release worktree, `~/.tds/release/macos/apps/<app>/build`.
+The bundle runs `bin/` from whichever checkout ran `build`: built from the
+primary checkout, it runs that checkout's branch, and a release never
+reaches it (Issue#820; on 2026-11-17 Flip Monitor kept the old `monctl`
+after PR#818 was released).
+
 ## Adding an app
 
 1. `mkdir macos/apps/<name>`
