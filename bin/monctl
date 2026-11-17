@@ -50,6 +50,10 @@ resolve_display() {
 
 # Reads go flaky for a second or two after a switch -- m1ddc returns a bare
 # negative number rather than failing outright. Retry rather than trust it.
+# Prints the raw value m1ddc reports. The input is its low byte (SL):
+# m1ddc 1.2.0 printed SL alone, 1.3.x prints SH and SL as one 16-bit
+# number, and this panel puts 0x19 in SH, so Thunderbolt reads 6425
+# (0x1919) -- Issue#817. Callers mask with $(( raw & 0xFF )).
 read_input() {
     local index=$1 attempt value
     for attempt in 1 2 3 4 5; do
@@ -80,7 +84,7 @@ set_input() {
 }
 
 main() {
-    local action=${1:-status} index current
+    local action=${1:-status} index current raw
 
     if [[ "${action}" == "-h" || "${action}" == "--help" ]]; then
         usage
@@ -94,16 +98,22 @@ main() {
         home|tb)   set_input "${index}" "${INPUT_TB}" ;;
         hdmi)      set_input "${index}" "${INPUT_HDMI}" ;;
         status)
-            current=$(read_input "${index}")
-            input_name "${current}"
+            raw=$(read_input "${index}")
+            input_name "$(( raw & 0xFF ))"
             ;;
         flip|toggle)
-            current=$(read_input "${index}")
-            if [[ "${current}" == "${INPUT_TB}" ]]; then
-                set_input "${index}" "${INPUT_DP}"
-            else
-                set_input "${index}" "${INPUT_TB}"
-            fi
+            # Refuse a value that is no known input rather than guess: a
+            # guess is how a changed m1ddc read went unnoticed (Issue#817).
+            raw=$(read_input "${index}")
+            current=$(( raw & 0xFF ))
+            case "${current}" in
+                "${INPUT_TB}")                  set_input "${index}" "${INPUT_DP}" ;;
+                "${INPUT_DP}"|"${INPUT_HDMI}")  set_input "${index}" "${INPUT_TB}" ;;
+                *)
+                    printf 'monctl: unrecognised input 0x%04X from m1ddc; not switching\n' "${raw}" >&2
+                    return 1
+                    ;;
+            esac
             ;;
         *)
             usage >&2
