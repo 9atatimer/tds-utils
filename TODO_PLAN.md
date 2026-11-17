@@ -44,7 +44,7 @@ todo-plan skill owns the schema. Completed work lives in git history and
   job (Issue#622).
 - Everything else open is its own file: LMDE (task-084 to task-090),
   log-hoarder search (task-091, task-092), sandbox lifecycle (task-094),
-  and the standalone items task-080 to task-083, task-093, task-095.
+  and the standalone items task-081 to task-083, task-093, task-095.
 
 ## Blockers
 
