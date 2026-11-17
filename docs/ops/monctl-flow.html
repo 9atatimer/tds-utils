@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>monctl flip flow</title>
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1f2328; --muted: #5d6470; --card: #ffffff; --line: #d6d3cc;
+    --ok: #1f7a4d; --ok-bg: #e5f4ec; --bad: #b42318; --bad-bg: #fdecea;
+    --warn: #8a5a00; --warn-bg: #fff4d6; --accent: #2457c5; --accent-bg: #e8eefc;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171a; --fg: #e6e6e3; --muted: #9aa0a8; --card: #1d2024; --line: #343840;
+      --ok: #5fd39a; --ok-bg: #16301f; --bad: #ff8a7a; --bad-bg: #3a1a17;
+      --warn: #f2c26b; --warn-bg: #352a12; --accent: #8fb0ff; --accent-bg: #1b2540;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.15rem; margin: 40px 0 8px; }
+  p.lede { color: var(--muted); margin: 0 0 24px; }
+  code, .mono { font-family: var(--mono); font-size: 0.9em; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .chain { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .chain .node { background: var(--accent-bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+  .chain .arrow { color: var(--muted); }
+  .bytes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .reply { display: flex; gap: 4px; margin: 8px 0; flex-wrap: wrap; }
+  .byte { font-family: var(--mono); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; text-align: center; min-width: 56px; }
+  .byte small { display: block; color: var(--muted); font-size: 0.7rem; }
+  .byte.read { background: var(--accent-bg); border-color: var(--accent); }
+  .byte.dim { opacity: 0.45; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.85em; }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); }
+  .pill.bad { background: var(--bad-bg); color: var(--bad); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .flows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; fill: var(--fg); }
+  svg .box { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+  svg .dec { fill: var(--accent-bg); stroke: var(--accent); stroke-width: 1.5; }
+  svg .good { fill: var(--ok-bg); stroke: var(--ok); stroke-width: 1.5; }
+  svg .trap { fill: var(--bad-bg); stroke: var(--bad); stroke-width: 2; }
+  svg .stop { fill: var(--warn-bg); stroke: var(--warn); stroke-width: 1.5; }
+  svg .edge { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+  svg .lbl { fill: var(--muted); font-size: 12px; }
+  .table-wrap { overflow-x: auto; }
+  @media (max-width: 720px) { .bytes, .flows { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>How <code>monctl flip</code> decides</h1>
+  <p class="lede">Why Flip Monitor went one-way after m1ddc 1.3.1, and the fix (tds-utils Issue#817).</p>
+
+  <h2>The pieces</h2>
+  <div class="card chain">
+    <span class="node">Flip Monitor.app</span><span class="arrow">-&gt;</span>
+    <span class="node"><code>monctl flip</code></span><span class="arrow">-&gt;</span>
+    <span class="node"><code>m1ddc display 2 get input</code></span><span class="arrow">-&gt;</span>
+    <span class="node">DDC/CI over the Thunderbolt cable</span><span class="arrow">-&gt;</span>
+    <span class="node">Dell U2725QE, VCP 0x60</span>
+  </div>
+  <p>The app shows <code>monctl</code>'s output as a notification, and a non-zero exit as a "failed" notification. <code>monctl</code> finds the panel by name each run, reads its current input, then sets the other one.</p>
+
+  <h2>What changed: how m1ddc decodes the reply</h2>
+  <div class="bytes">
+    <div class="card">
+      <strong>m1ddc 1.2.0</strong> (what monctl was written against, 2026-08-08)
+      <div class="reply">
+        <div class="byte dim">..<small>bytes 0-7</small></div>
+        <div class="byte dim">0x19<small>SH</small></div>
+        <div class="byte read">0x19<small>SL</small></div>
+      </div>
+      Reads one byte, SL. Thunderbolt reads <strong>25</strong>.
+    </div>
+    <div class="card">
+      <strong>m1ddc 1.3.1</strong> (Homebrew, 2026-11-06)
+      <div class="reply">
+        <div class="byte dim">..<small>bytes 0-7</small></div>
+        <div class="byte read">0x19<small>SH</small></div>
+        <div class="byte read">0x19<small>SL</small></div>
+      </div>
+      Reads two bytes, SH and SL. Thunderbolt reads <strong>6425</strong> (0x1919).
+    </div>
+  </div>
+  <p>For VCP 0x60 the input is SL. The Dell fills SH with 0x19 on both inputs, so the DisplayPort state now reads 6415 (0x190F).</p>
+
+  <h2>The flow, before and after the fix</h2>
+  <div class="flows">
+    <div class="card">
+      <strong>Before (m1ddc 1.3.1)</strong>
+      <svg viewBox="0 0 420 470" role="img" aria-label="Current flip flow">
+        <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" style="color:var(--muted)"/></marker></defs>
+        <rect class="box" x="110" y="10" width="200" height="40" rx="8"/><text x="210" y="35" text-anchor="middle">find "DELL U2725QE"</text>
+        <path class="edge" d="M210 50 V80" marker-end="url(#a1)"/>
+        <rect class="box" x="90" y="80" width="240" height="56" rx="8"/><text x="210" y="103" text-anchor="middle">read input (5 tries)</text><text x="210" y="122" text-anchor="middle" class="lbl">raw number from m1ddc</text>
+        <path class="edge" d="M210 136 V170" marker-end="url(#a1)"/>
+        <polygon class="dec" points="210,170 320,220 210,270 100,220"/><text x="210" y="225" text-anchor="middle">is it 25?</text>
+        <path class="edge" d="M100 220 H40 V330" marker-end="url(#a1)"/><text x="60" y="210" class="lbl">yes</text>
+        <path class="edge" d="M320 220 H380 V330" marker-end="url(#a1)"/><text x="345" y="210" class="lbl">no</text>
+        <rect class="good" x="0" y="330" width="160" height="56" rx="8"/><text x="80" y="353" text-anchor="middle">set 15</text><text x="80" y="372" text-anchor="middle" class="lbl">work (DisplayPort)</text>
+        <rect class="trap" x="250" y="330" width="170" height="56" rx="8"/><text x="335" y="353" text-anchor="middle">set 25</text><text x="335" y="372" text-anchor="middle" class="lbl">home (Thunderbolt)</text>
+        <text x="335" y="412" text-anchor="middle" class="lbl">DP, HDMI, 6425, 6415, garbage:</text>
+        <text x="335" y="430" text-anchor="middle" class="lbl">everything lands here</text>
+        <text x="335" y="455" text-anchor="middle" style="fill:var(--bad)">6425 is home already: no-op</text>
+      </svg>
+    </div>
+    <div class="card">
+      <strong>After</strong>
+      <svg viewBox="0 0 420 560" role="img" aria-label="Flip flow after the fix">
+        <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" style="color:var(--muted)"/></marker></defs>
+        <rect class="box" x="110" y="10" width="200" height="40" rx="8"/><text x="210" y="35" text-anchor="middle">find "DELL U2725QE"</text>
+        <path class="edge" d="M210 50 V80" marker-end="url(#a2)"/>
+        <rect class="box" x="90" y="80" width="240" height="56" rx="8"/><text x="210" y="103" text-anchor="middle">read input (5 tries)</text><text x="210" y="122" text-anchor="middle" class="lbl">keep the low byte (SL)</text>
+        <path class="edge" d="M210 136 V166" marker-end="url(#a2)"/>
+        <polygon class="dec" points="210,166 330,211 210,256 90,211"/><text x="210" y="208" text-anchor="middle">a known input?</text><text x="210" y="226" text-anchor="middle" class="lbl">25, 15 or 17</text>
+        <path class="edge" d="M330 211 H390 V470" marker-end="url(#a2)"/><text x="345" y="200" class="lbl">no</text>
+        <path class="edge" d="M210 256 V290" marker-end="url(#a2)"/><text x="218" y="278" class="lbl">yes</text>
+        <polygon class="dec" points="210,290 310,330 210,370 110,330"/><text x="210" y="335" text-anchor="middle">is it 25?</text>
+        <path class="edge" d="M110 330 H50 V420" marker-end="url(#a2)"/><text x="70" y="320" class="lbl">yes</text>
+        <path class="edge" d="M210 370 V420" marker-end="url(#a2)"/><text x="218" y="400" class="lbl">no (15, 17)</text>
+        <rect class="good" x="0" y="420" width="140" height="56" rx="8"/><text x="70" y="443" text-anchor="middle">set 15</text><text x="70" y="462" text-anchor="middle" class="lbl">work (DisplayPort)</text>
+        <rect class="good" x="150" y="420" width="140" height="56" rx="8"/><text x="220" y="443" text-anchor="middle">set 25</text><text x="220" y="462" text-anchor="middle" class="lbl">home (Thunderbolt)</text>
+        <rect class="stop" x="300" y="470" width="120" height="70" rx="8"/><text x="360" y="495" text-anchor="middle">refuse, exit 1</text><text x="360" y="514" text-anchor="middle" class="lbl">names raw value</text><text x="360" y="530" text-anchor="middle" class="lbl">switches nothing</text>
+      </svg>
+    </div>
+  </div>
+
+  <h2>Every read, before and after</h2>
+  <div class="card table-wrap">
+    <table>
+      <thead><tr><th>m1ddc reports</th><th>Panel shows</th><th>Before <code>flip</code></th><th>After <code>flip</code></th></tr></thead>
+      <tbody>
+        <tr><td class="mono">25</td><td>home (1.2.0 form)</td><td><span class="pill ok">set 15</span></td><td><span class="pill ok">set 15</span></td></tr>
+        <tr><td class="mono">15</td><td>work (1.2.0 form)</td><td><span class="pill ok">set 25</span></td><td><span class="pill ok">set 25</span></td></tr>
+        <tr><td class="mono">6425 (0x1919)</td><td>home (1.3.1 form)</td><td><span class="pill bad">set 25, no-op</span></td><td><span class="pill ok">set 15</span></td></tr>
+        <tr><td class="mono">6415 (0x190F)</td><td>work (1.3.1 form)</td><td><span class="pill warn">set 25, by luck</span></td><td><span class="pill ok">set 25</span></td></tr>
+        <tr><td class="mono">17 / 0x..11</td><td>HDMI</td><td><span class="pill ok">set 25</span></td><td><span class="pill ok">set 25</span></td></tr>
+        <tr><td class="mono">99, 0x..63</td><td>something unknown</td><td><span class="pill warn">set 25, silently</span></td><td><span class="pill warn">refuse, "failed" notification</span></td></tr>
+        <tr><td class="mono">not a number x5</td><td>read failed</td><td><span class="pill ok">exit 1</span></td><td><span class="pill ok">exit 1</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p><code>monctl work</code> and <code>monctl home</code> do not read the input, so they keep working whatever the read returns.</p>
+</main>
+</body>
+</html>
