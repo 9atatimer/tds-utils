@@ -40,6 +40,8 @@ test = [
     "test/smoketest_remvllm/06_secrets_refs.sh",
     # Created by tds-utils PR#807, declared by it.
     "test/smoketest_agent_budget.sh",
+    # Created by tds-utils PR#818, declared by it.
+    "test/smoketest_monctl.sh",
 ]
 
 [records]
