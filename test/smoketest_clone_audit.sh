@@ -176,7 +176,7 @@ test_git_dir_not_scanned() {
 }
 
 test_bleed_hazard() {
-    bold "Test: stale files, legacy hostnames, and private IPs are flagged BLEED-HAZARD"; printf '\n'
+    bold "Test: stale files and legacy hostnames are flagged BLEED-HAZARD"; printf '\n'
     local dir; dir="$(new_dir bleed)"
     
     mkdir -p "${dir}/emacs/dot.emacs.d/semanticdb"
@@ -190,12 +190,22 @@ test_bleed_hazard() {
     printf 'content\n' > "${dir}/.saves-123-${h_part}.local~"
     local m_part="mbp-host-generic"
     printf 'Author: user@%s.local\n' "${m_part}" > "${dir}/pants.el"
-    local ip_part="192.168.1"
-    printf 'bind_address = "%s.100"\n' "${ip_part}" > "${dir}/config.conf"
     
     run_audit "${dir}"
     assert "exit 2"            "[ ${SCAN_RC} -eq 2 ]"
     assert "flags BLEED-HAZARD" "grep -q 'BLEED-HAZARD' <<< \"\${SCAN_OUT}\""
+}
+
+test_private_ranges_exempt() {
+    bold "Test: RFC1918 addresses alone are not flagged (loopback aliases, LAN docs)"; printf '\n'
+    local dir; dir="$(new_dir privrange)"
+    local a="10.0.0" b="172.16.0" c="192.168.1"
+    printf 'alias %s.1 on lo0\n%s.5\n%s.100\n' "${a}" "${b}" "${c}" > "${dir}/NOTES.md"
+    printf 'x\n' > "${dir}/host-${a}.1.txt"
+
+    run_audit "${dir}"
+    assert "exit 0"            "[ ${SCAN_RC} -eq 0 ]"
+    assert "no BLEED-HAZARD"   "! grep -q 'BLEED-HAZARD' <<< \"\${SCAN_OUT}\""
 }
 
 # --- Hook tests (real git repos) ---
@@ -291,6 +301,7 @@ main() {
     test_idea_runconfigs
     test_git_dir_not_scanned
     test_bleed_hazard
+    test_private_ranges_exempt
     test_hook_scans_on_clone
     test_hook_resolves_tilde_scannerpath
     test_hook_skips_ordinary_checkout
