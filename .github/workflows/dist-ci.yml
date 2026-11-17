@@ -201,6 +201,10 @@ jobs:
       - name: Smoketest clai.d/codex/pre/30-model
         run: /bin/bash test/smoketest_clai_codex_model.sh
 
+      # Hermetic: a fake m1ddc on PATH; no monitor is touched (Issue#817).
+      - name: Smoketest bin/monctl
+        run: /bin/bash test/smoketest_monctl.sh
+
       # Hermetic: the alias file sourced under bash with a fake ssh on PATH.
       - name: Smoketest macos/dot.alias
         run: /bin/bash test/smoketest_dot_alias.sh
