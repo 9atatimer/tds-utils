@@ -1,0 +1,810 @@
+#!/usr/bin/env bash
+# tds-public -- publish an allow-listed snapshot of a released commit to a
+# public target repository, or refuse the whole publication.
+#
+# Usage: tds-public [-n] <target> <released-sha>
+#   target         workflows | tds-utils-public
+#   released-sha   a commit that is the head of branch `release` in the source
+#   -n             dry run: print the selection and every refusal, contact no
+#                  remote, push nothing
+# Exit:  0 published, or nothing to do; 1 a refusal or a push failure;
+#        2 usage error.
+#
+# What is published is exactly what publish/<target>.allow names at the
+# released commit (one path or glob per line, `#` comments, no negation).
+# Everything -- the allow-list, file contents, modes, .gitattributes -- is
+# read from that commit's tree, never from a working directory. The step
+# refuses the whole publication, collecting every refusal first, when:
+#   not-released      the sha is not the head of branch `release`
+#   no-allow-list     the commit has no publish/<target>.allow
+#   bad-allow-line    an allow-list line is negated, option-like, magic,
+#                     absolute, or climbs out of the repository
+#   stale-allow-line  an allow-list line matches nothing at the commit
+#   no-denylist       no readable bleed denylist (never skipped, never
+#                     disabled by TDS_BLEED_GUARD or bleedguard.enabled)
+#   denylist-match    a selected path name or any byte line of a selected
+#                     file (binary included) matches the denylist
+#   git-crypt         a selected path has filter=git-crypt* at the commit
+#   symlink-escape    a selected symlink is not a relative link to a selected
+#                     regular file
+#   submodule         a selected path is a gitlink
+#   unsafe-path       a selected path holds a tab, newline or control byte
+#   github-in-mirror  (tds-utils-public) a selected path is under .github/
+#   workflow-trigger  (workflows) a selected .github/workflows file has any
+#                     trigger but workflow_call, or one this step cannot read
+# A refusal is one stderr line:
+#   tds-public: refused: <rule>: <path>[:<line>] -- <reason>
+# It never carries denylist text; a name that holds an entry is redacted.
+#
+# Publishing builds the tree from the commit's blobs (never a checkout, so no
+# attribute or filter can alter a byte), clones the target's default branch,
+# and, when the tree differs, adds one commit `release <sha>` on the previous
+# head and pushes it with a plain push, never forced.
+#
+# Environment:
+#   TDS_PUBLIC_SOURCE   the source repo (default: the repo holding this script)
+#   TDS_PUBLIC_REMOTE   the target remote (default: the target's GitHub HTTPS
+#                       URL, reached as 9atatimer-bot through bin/asbot; a set
+#                       remote uses plain git and the ambient identity)
+#   TDS_PUBLIC_ASBOT    asbot to use (default: the one beside this script)
+#   TDS_BLEED_DENYLIST  denylist path (see lib/bleed-match.sh)
+#
+# Needs git 2.31 or newer (--git-path with -C, GIT_CONFIG_GLOBAL isolation).
+# Portability: bash 3.2 / BSD-safe. Design: docs/design/DESIGN.PUBLIC-RELEASE.md.
+
+set -euo pipefail
+
+# Byte semantics: a binary file is scanned as bytes, never aborting awk.
+export LC_ALL=C
+
+# Nothing in the caller's environment may redirect which repository, index,
+# objects, attributes or pathspec semantics this step reads.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_COMMON_DIR \
+    GIT_LITERAL_PATHSPECS GIT_GLOB_PATHSPECS GIT_NOGLOB_PATHSPECS \
+    GIT_ICASE_PATHSPECS GIT_ATTR_SOURCE GIT_CEILING_DIRECTORIES
+export GIT_TERMINAL_PROMPT=0 GIT_ATTR_NOSYSTEM=1 GIT_NO_REPLACE_OBJECTS=1
+
+# --- Shared library ---
+
+# This script may run through a symlink; find the library from its real home.
+real_script_dir() {
+    local path="${BASH_SOURCE[0]}" dir
+    while [ -L "${path}" ]; do
+        dir="$(cd -P "$(dirname "${path}")" && pwd)"
+        path="$(readlink "${path}")"
+        case "${path}" in /*) ;; *) path="${dir}/${path}" ;; esac
+    done
+    (cd -P "$(dirname "${path}")" && pwd)
+}
+
+SELF_DIR="$(real_script_dir)"
+if [ ! -r "${SELF_DIR}/../lib/bleed-match.sh" ]; then
+    echo "tds-public: cannot read ${SELF_DIR}/../lib/bleed-match.sh" >&2
+    exit 1
+fi
+# shellcheck source=../lib/bleed-match.sh
+. "${SELF_DIR}/../lib/bleed-match.sh"
+
+# --- Constants ---
+
+TARGETS="workflows tds-utils-public"
+REMOTE_URL_PREFIX="https://github.com/9atatimer"
+EMPTY_REMOTE_BRANCH="main"
+
+# --- Globals (set by main and the flow functions) ---
+
+TMP_ROOT=""        # scratch dir, outside every checkout; removed on exit
+DRY_RUN=0
+TARGET=""
+SHA_ARG=""
+FULL_SHA=""
+SRC=""
+DENYLIST=""
+DENY_OK=0          # 1 when the denylist is readable
+ALLOW_PATH=""      # publish/<target>.allow
+REFUSALS=""        # file: one finished refusal line each
+SELECT=""          # file: mode<TAB>oid<TAB>path, sorted, one per selected path
+REGULAR=""         # file: selected regular-file paths
+ENTRY_COUNT=0      # allow-list entries (non-comment, non-blank lines)
+CHECKS_OK=0        # checks that ran to the end
+EXPECTED_CHECKS=0  # checks that must have run before anything is pushed
+FAILED=0           # 1 when a refusal could not even be recorded
+ATTR_GIT=""        # scratch bare repo that reads the commit's tree
+ATTR_WT=""         # its empty work tree
+ATTR_INDEX=""      # its index: the commit's tree
+CLONE=""
+ASBOT=""
+
+# --- Output and cleanup ---
+
+note() { printf 'tds-public: %s\n' "$*" >&2; }
+
+usage() {
+    sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+}
+
+cleanup() {
+    [ -n "${TMP_ROOT}" ] && [ -d "${TMP_ROOT}" ] && rm -rf "${TMP_ROOT}"
+    return 0
+}
+
+# A trapped signal must stop the run, not just clean up: a handler that
+# returned would let a publication carry on after SIGTERM.
+on_signal() {
+    cleanup
+    trap - EXIT
+    exit "$1"
+}
+
+# --- Source and scratch repository actions ---
+
+src_git() { git -C "${SRC}" "$@"; }
+
+# attr_git <args> -- git against the scratch repo that holds the commit's tree
+# as its index: pathspecs and attributes are read from that tree, with no
+# system or user attributes file and no info/attributes to override it.
+attr_git() {
+    GIT_INDEX_FILE="${ATTR_INDEX}" git -C "${ATTR_WT}" --git-dir="${ATTR_GIT}" \
+        --work-tree="${ATTR_WT}" -c core.attributesFile=/dev/null \
+        -c core.ignorecase=false -c core.quotepath=false "$@"
+}
+
+# redact_stream -- stdin with denylist entries redacted when a denylist is
+# readable, else unchanged.
+redact_stream() {
+    if [ "${DENY_OK}" -eq 1 ]; then redact_lines "${DENYLIST}"; else cat; fi
+}
+
+# add_refusal <rule> <where> <reason> -- record one refusal. When redaction
+# cannot run, the detail is withheld rather than risk printing an entry; when
+# even the record cannot be written, FAILED stops the run.
+add_refusal() {
+    local line
+    if ! line="$(printf 'tds-public: refused: %s: %s -- %s' "$1" "$2" "$3" | redact_stream)" || [ -z "${line}" ]; then
+        line="tds-public: refused: $1: - -- detail withheld: the redaction could not run"
+    fi
+    printf '%s\n' "${line}" >> "${REFUSALS}" || FAILED=1
+    return 0
+}
+
+# display_path <path> -- a path safe to print on one line.
+display_path() {
+    case "$1" in
+        *[[:cntrl:]]*) printf '%q' "$1" ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+# --- Predicates ---
+
+is_target() {
+    local t
+    for t in ${TARGETS}; do [ "$1" = "$t" ] && return 0; done
+    return 1
+}
+
+# allow_line_problem <line> -- print why an allow-list line cannot be a
+# pattern; return 1 when it is fine. Every line is matched only as a
+# `:(glob)` pathspec, so none of these may reach git as magic or an option.
+allow_line_problem() {
+    local line="$1"
+    case "${line}" in
+        '!'*) echo "negation is not supported"; return 0 ;;
+        -*)   echo "reads as an option"; return 0 ;;
+        :*)   echo "reads as pathspec magic"; return 0 ;;
+        /*)   echo "absolute path"; return 0 ;;
+        *[[:cntrl:]]*) echo "control character"; return 0 ;;
+        .|..|./*|../*|*/./*|*/../*|*/.|*/..|*//*)
+              echo "empty, . or .. path component"; return 0 ;;
+    esac
+    return 1
+}
+
+# is_regular_mode <mode> -- a blob that is a file, not a link or gitlink.
+is_regular_mode() { [ "$1" = 100644 ] || [ "$1" = 100755 ]; }
+
+# --- Rules (policies over the selection) ---
+
+# resolve_link <link-path> <target> -- print the repo-relative path a relative
+# symlink points at, normalized; return 1 when it is absolute, escapes the
+# repository root, or names the root itself.
+resolve_link() {
+    local link="$1" target="$2" dir joined acc="" part i
+    local -a parts
+    case "${target}" in /*) return 1 ;; esac
+    dir="${link%/*}"
+    [ "${dir}" = "${link}" ] && dir=""
+    joined="${dir:+${dir}/}${target}"
+    local IFS=/
+    read -r -a parts <<< "${joined}"
+    for ((i = 0; i < ${#parts[@]}; i++)); do
+        part="${parts[i]}"
+        case "${part}" in
+            ''|.) ;;
+            ..)
+                [ -n "${acc}" ] || return 1
+                case "${acc}" in */*) acc="${acc%/*}" ;; *) acc="" ;; esac
+                ;;
+            *) acc="${acc:+${acc}/}${part}" ;;
+        esac
+    done
+    [ -n "${acc}" ] || return 1
+    printf '%s\n' "${acc}"
+}
+
+# workflow_verdict <file> -- print why a workflow file's triggers cannot be
+# accepted and return 1; print nothing and return 0 when the only trigger is
+# workflow_call. No YAML parser exists here, so this is a recognizer that
+# accepts only the forms it fully understands:
+#   on: workflow_call        on: [workflow_call]
+#   on:                      (block whose only child key is workflow_call,
+#     workflow_call: ...      with any nested content)
+# with `on`, "on" or 'on' as the key and comments allowed. Everything else
+# refuses: no on key, two on keys, a key spelled On/ON, tabs or indentation
+# it cannot place, a second document, a multi-line flow or quoted top-level
+# value, and an anchor, alias or tag where one could change what `on` means.
+workflow_verdict() {
+    awk '
+    function fail(msg) {
+        reason = msg
+        if (in_end) { print reason; exit 1 }
+        exit 1
+    }
+    function finish_on() {
+        if (in_on) {
+            if (child_indent == 0) fail("on has no keys")
+            if (wc != 1) fail("on does not hold exactly workflow_call")
+            in_on = 0
+        }
+    }
+    function strip_comment(v) {
+        if (match(v, /(^|[ ])#.*$/)) v = substr(v, 1, RSTART - 1)
+        sub(/[ ]+$/, "", v)
+        return v
+    }
+    function check_value(v,    t, o, c) {
+        sub(/^[ ]+/, "", v)
+        if (v == "") return
+        t = substr(v, 1, 1)
+        if (t == "&" || t == "*" || t == "!") fail("anchor, alias or tag at the top level")
+        if (t == "\"" && v !~ /^"([^"\\]|\\.)*"([ ]+#.*)?$/) fail("multi-line or odd quoted value")
+        if (t == "\047" && v !~ /^\047([^\047]|\047\047)*\047([ ]+#.*)?$/) fail("multi-line or odd quoted value")
+        if (t == "[" || t == "{") {
+            v = strip_comment(v)
+            o = gsub(/[\[{]/, "&", v); c = gsub(/[\]}]/, "&", v)
+            if (o != c || v !~ /[\]}]$/) fail("multi-line flow value")
+        }
+    }
+    {
+        sub(/\r$/, "")
+        lineno++
+        if ($0 ~ /^[ ]*\t/) fail("tab indentation")
+        if ($0 ~ /^[ ]*$/ || $0 ~ /^[ ]*#/) next
+        match($0, /^ */); ind = RLENGTH; content = substr($0, ind + 1)
+        if (ind == 0) {
+            finish_on()
+            after_scalar = 0
+            if (content ~ /^---([ ]+#.*)?$/) {
+                if (started || docs) fail("more than one document")
+                docs = 1; next
+            }
+            if (content ~ /^(---|\.\.\.)/) fail("document marker not understood")
+            started = 1
+            if (match(content, /^(on|"on"|\047on\047)[ ]*:([ ]|$)/)) {
+                if (++seen_on > 1) fail("more than one on key")
+                v = substr(content, RLENGTH + 1)
+                sub(/^[ ]+/, "", v)
+                v = strip_comment(v)
+                if (v == "workflow_call" || v ~ /^\[ *workflow_call *\]$/) {
+                    after_scalar = 1
+                } else if (v == "") {
+                    in_on = 1; child_indent = 0; wc = 0
+                } else {
+                    fail("on value is not workflow_call")
+                }
+                next
+            }
+            if (match(content, /^[A-Za-z_][A-Za-z0-9_.-]*[ ]*:([ ]|$)/) || \
+                match(content, /^("[A-Za-z0-9_. -]*"|\047[A-Za-z0-9_. -]*\047)[ ]*:([ ]|$)/)) {
+                key = substr(content, 1, RLENGTH)
+                gsub(/[ :"\047]/, "", key)
+                if (tolower(key) == "on") fail("a key spelled like on")
+                check_value(substr(content, RLENGTH + 1))
+                next
+            }
+            fail("top-level line not understood")
+        }
+        if (after_scalar) fail("on value continues on the next line")
+        if (in_on) {
+            if (child_indent == 0) child_indent = ind
+            if (ind < child_indent) fail("indentation under on not understood")
+            if (ind == child_indent) {
+                if (content !~ /^workflow_call[ ]*:([ ]|$)/) fail("on holds a key other than workflow_call")
+                wc++
+            }
+        }
+    }
+    END {
+        in_end = 1
+        if (reason == "") { finish_on() }
+        if (reason == "" && seen_on == 0) reason = "no on key"
+        if (reason != "") { print reason; exit 1 }
+    }
+    ' "$1"
+}
+
+# --- Checks ---
+#
+# Everything from here to the end of the selection code runs where `set -e`
+# is off (collect is called from a conditional), so every command's status is
+# checked by hand. A check that cannot complete returns non-zero; run_check
+# turns that into an `internal` refusal. A check never passes by failing.
+
+# in_list <line> <file> -- the file holds exactly this line (no external tool).
+in_list() {
+    local want="$1" line
+    while IFS= read -r line; do
+        [ "${line}" = "${want}" ] && return 0
+    done < "$2"
+    return 1
+}
+
+# run_check <name> <function> -- run one check; a check that could not run
+# is a refusal, and so is one that left the refusal file unwritable.
+run_check() {
+    local name="$1"
+    shift
+    if "$@"; then
+        CHECKS_OK=$((CHECKS_OK + 1))
+    else
+        add_refusal internal "${name}" "the check could not run, so nothing can be cleared"
+    fi
+    return 0
+}
+
+check_released() {
+    local head
+    head="$(src_git rev-parse --verify -q 'refs/heads/release^{commit}' 2>/dev/null || true)"
+    if [ -z "${head}" ]; then
+        add_refusal not-released "${FULL_SHA}" "the source repo has no branch release"
+    elif [ "${head}" != "${FULL_SHA}" ]; then
+        add_refusal not-released "${FULL_SHA}" "not the head of branch release"
+    fi
+    return 0
+}
+
+check_denylist_present() {
+    DENYLIST="$(cd "${SRC}" && resolve_denylist)" || return 1
+    if [ -f "${DENYLIST}" ] && [ -r "${DENYLIST}" ]; then
+        DENY_OK=1
+    else
+        add_refusal no-denylist - \
+            "no readable denylist (set TDS_BLEED_DENYLIST or git config bleedguard.denylist)"
+    fi
+    return 0
+}
+
+check_submodules() {
+    local mode oid path
+    while IFS=$'\t' read -r mode oid path; do
+        [ "${mode}" = 160000 ] || continue
+        add_refusal submodule "${path}" "a gitlink is not a file this step can publish"
+    done < "${SELECT}" || return 1
+}
+
+check_symlinks() {
+    local mode oid path blob="${TMP_ROOT}/linkblob" target resolved size
+    while IFS=$'\t' read -r mode oid path; do
+        [ "${mode}" = 120000 ] || continue
+        if ! src_git cat-file blob "${oid}" > "${blob}"; then
+            add_refusal symlink-escape "${path}" "the link target cannot be read"
+            continue
+        fi
+        target="$(cat "${blob}")" || return 1
+        size="$(wc -c < "${blob}")" || return 1
+        size="${size//[[:space:]]/}"
+        case "${target}" in
+            '')            add_refusal symlink-escape "${path}" "empty link target"; continue ;;
+            *[[:cntrl:]]*) add_refusal symlink-escape "${path}" "link target holds a control character"; continue ;;
+            /*)            add_refusal symlink-escape "${path}" "absolute link target ${target}"; continue ;;
+        esac
+        if [ "${size}" -ne "${#target}" ]; then
+            add_refusal symlink-escape "${path}" "link target ends in a newline"
+            continue
+        fi
+        if ! resolved="$(resolve_link "${path}" "${target}")"; then
+            add_refusal symlink-escape "${path}" "link target ${target} leaves the repository"
+        elif ! in_list "${resolved}" "${REGULAR}"; then
+            add_refusal symlink-escape "${path}" "link target ${resolved} is not a selected regular file"
+        fi
+    done < "${SELECT}" || return 1
+}
+
+# check_git_crypt -- attributes as the released commit's tree has them. The
+# answer must cover every selected path: three NUL-terminated fields each.
+check_git_crypt() {
+    local list="${TMP_ROOT}/attr-in" out="${TMP_ROOT}/attr-out" mode oid path p v want=0 got
+    : > "${list}" || return 1
+    while IFS=$'\t' read -r mode oid path; do
+        printf '%s\0' "${path}" >> "${list}" || return 1
+        want=$((want + 3))
+    done < "${SELECT}" || return 1
+    attr_git check-attr --cached -z filter --stdin < "${list}" > "${out}" || return 1
+    got="$(tr -cd '\0' < "${out}" | wc -c)" || return 1
+    got="${got//[[:space:]]/}"
+    [ "${got}" -eq "${want}" ] || return 1
+    while IFS= read -r -d '' p && IFS= read -r -d '' _ && IFS= read -r -d '' v; do
+        case "${v}" in
+            git-crypt*) add_refusal git-crypt "$(display_path "${p}")" "filter=${v}: the file is encrypted" ;;
+        esac
+    done < "${out}" || return 1
+}
+
+check_mirror_has_no_github() {
+    local mode oid path
+    while IFS=$'\t' read -r mode oid path; do
+        case "${path}" in
+            .[gG][iI][tT][hH][uU][bB]|.[gG][iI][tT][hH][uU][bB]/*)
+                add_refusal github-in-mirror "${path}" "the mirror runs no workflows and carries no .github/" ;;
+        esac
+    done < "${SELECT}" || return 1
+}
+
+check_workflow_triggers() {
+    local mode oid path blob="${TMP_ROOT}/wfblob" why rc
+    while IFS=$'\t' read -r mode oid path; do
+        case "${path}" in
+            .[gG][iI][tT][hH][uU][bB]/[wW][oO][rR][kK][fF][lL][oO][wW][sS]/*.[yY][mM][lL]) ;;
+            .[gG][iI][tT][hH][uU][bB]/[wW][oO][rR][kK][fF][lL][oO][wW][sS]/*.[yY][aA][mM][lL]) ;;
+            *) continue ;;
+        esac
+        case "${mode}" in
+            160000) continue ;;
+            120000) add_refusal workflow-trigger "${path}" "a symlink cannot be a workflow"; continue ;;
+        esac
+        if ! src_git cat-file blob "${oid}" > "${blob}"; then
+            add_refusal workflow-trigger "${path}" "the file cannot be read"
+            continue
+        fi
+        rc=0
+        why="$(workflow_verdict "${blob}")" || rc=$?
+        if [ "${rc}" -ne 0 ]; then
+            # A refusal says why; a recognizer that died says nothing.
+            [ -n "${why}" ] || return 1
+            add_refusal workflow-trigger "${path}" "${why}; only workflow_call is allowed"
+        fi
+    done < "${SELECT}" || return 1
+}
+
+# check_denylist -- scan every selected path name and every byte line of every
+# selected blob, binary included. NUL becomes \001 so a line is never cut short
+# and line numbers stay true; an entry is text and cannot span a NUL. The
+# matcher reports how many path-name records it was fed; that must equal the
+# selection, or the scan was short and nothing is cleared.
+check_denylist() {
+    [ "${DENY_OK}" -eq 1 ] || return 0
+    local mode oid path blob="${TMP_ROOT}/scanblob" conv="${TMP_ROOT}/scanconv"
+    local records="${TMP_ROOT}/records" hits="${TMP_ROOT}/hits" counts="${TMP_ROOT}/counts"
+    local selected=0 names total
+    : > "${records}" || return 1
+    while IFS=$'\t' read -r mode oid path; do
+        selected=$((selected + 1))
+        printf '%s\t0\t%s\n' "${path}" "${path}" >> "${records}" || return 1
+        [ "${mode}" = 160000 ] && continue
+        if src_git cat-file blob "${oid}" > "${blob}"; then
+            tr '\0' '\1' < "${blob}" > "${conv}" || return 1
+            P="${path}" awk '{ printf "%s\t%d\t%s\n", ENVIRON["P"], NR, $0 }' < "${conv}" >> "${records}" || return 1
+        else
+            add_refusal denylist-match "${path}" "the file cannot be read, so it cannot be cleared"
+        fi
+    done < "${SELECT}" || return 1
+    match_records_counted "${DENYLIST}" "${counts}" < "${records}" > "${hits}" || return 1
+    read -r names total < "${counts}" || return 1
+    [ "${names}" = "${selected}" ] || return 1
+    [ "${total}" -ge "${names}" ] || return 1
+    sed -E 's/^(.*): ((file name )?matches denylist entry at line [0-9]+)$/tds-public: refused: denylist-match: \1 -- \2/' \
+        "${hits}" >> "${REFUSALS}" || return 1
+}
+
+# --- Selection ---
+
+# make_scratch_repo -- a bare repo that borrows the source's objects and reads
+# the released commit's tree as its index.
+make_scratch_repo() {
+    local objects
+    ATTR_GIT="${TMP_ROOT}/attr.git"; ATTR_WT="${TMP_ROOT}/wt"; ATTR_INDEX="${TMP_ROOT}/attr.index"
+    mkdir -p "${ATTR_WT}" || return 1
+    git init -q --bare --template= "${ATTR_GIT}" || return 1
+    objects="$(src_git rev-parse --git-path objects)" || return 1
+    case "${objects}" in /*) ;; *) objects="$(cd "${SRC}" && cd "${objects}" && pwd)" || return 1 ;; esac
+    printf '%s\n' "${objects}" > "${ATTR_GIT}/objects/info/alternates" || return 1
+    attr_git read-tree "${FULL_SHA}" || return 1
+}
+
+# load_allow_list <dest> -- the commit's own publish/<target>.allow, as a file.
+# Returns 0 loaded, 3 refused (recorded), anything else could not run.
+load_allow_list() {
+    local dest="$1" entry mode oid nonul="${TMP_ROOT}/allow-nonul" a b
+    ALLOW_PATH="publish/${TARGET}.allow"
+    entry="$(src_git ls-tree "${FULL_SHA}" -- "${ALLOW_PATH}")" || return 1
+    if [ -z "${entry}" ]; then
+        add_refusal no-allow-list "${ALLOW_PATH}" "the released commit has no allow-list for ${TARGET}"
+        return 3
+    fi
+    mode="${entry%% *}"; oid="${entry#* blob }"; oid="${oid%%$'\t'*}"
+    if ! is_regular_mode "${mode}"; then
+        add_refusal no-allow-list "${ALLOW_PATH}" "the allow-list is not a regular file"
+        return 3
+    fi
+    src_git cat-file blob "${oid}" > "${dest}" || return 1
+    tr -d '\0' < "${dest}" > "${nonul}" || return 1
+    a="$(wc -c < "${dest}")" || return 1
+    b="$(wc -c < "${nonul}")" || return 1
+    if [ "${a//[[:space:]]/}" -ne "${b//[[:space:]]/}" ]; then
+        add_refusal bad-allow-line "${ALLOW_PATH}" "the allow-list holds a NUL byte"
+        return 3
+    fi
+    return 0
+}
+
+# add_matches <file> -- append each `ls-files -s -z` record in <file> to the
+# raw selection, refusing paths no line-oriented check could carry safely.
+add_matches() {
+    local rec meta path rest mode oid
+    while IFS= read -r -d '' rec; do
+        meta="${rec%%$'\t'*}"; path="${rec#*$'\t'}"
+        mode="${meta%% *}"; rest="${meta#* }"; oid="${rest%% *}"
+        case "${path}" in
+            *[[:cntrl:]]*) add_refusal unsafe-path "$(display_path "${path}")" "a tab, newline or control byte in a path"; continue ;;
+        esac
+        printf '%s\t%s\t%s\n' "${mode}" "${oid}" "${path}" >> "${TMP_ROOT}/select.raw" || return 1
+    done < "$1" || return 1
+}
+
+# select_paths <allow-file> -- match every allow-list line, as a `:(glob)`
+# pathspec, against the commit's tree. A git failure other than an invalid
+# pattern (exit 128) means the matching itself could not run.
+select_paths() {
+    local allow="$1" line n=0 why found="${TMP_ROOT}/found" rc mode oid path
+    : > "${TMP_ROOT}/select.raw" || return 1
+    while IFS= read -r line || [ -n "${line}" ]; do
+        n=$((n + 1))
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        case "${line}" in ''|'#'*) continue ;; esac
+        ENTRY_COUNT=$((ENTRY_COUNT + 1))
+        if why="$(allow_line_problem "${line}")"; then
+            add_refusal bad-allow-line "${ALLOW_PATH}:${n}" "${why}: ${line}"
+            continue
+        fi
+        rc=0
+        attr_git ls-files -s -z -- ":(glob)${line}" > "${found}" 2>/dev/null || rc=$?
+        if [ "${rc}" -eq 128 ]; then
+            add_refusal bad-allow-line "${ALLOW_PATH}:${n}" "git rejects the pattern: ${line}"
+            continue
+        fi
+        [ "${rc}" -eq 0 ] || return 1
+        if [ ! -s "${found}" ]; then
+            add_refusal stale-allow-line "${ALLOW_PATH}:${n}" "matches nothing at the released commit: ${line}"
+            continue
+        fi
+        add_matches "${found}" || return 1
+    done < "${allow}" || return 1
+    sort -u "${TMP_ROOT}/select.raw" > "${SELECT}" || return 1
+    : > "${REGULAR}" || return 1
+    while IFS=$'\t' read -r mode oid path; do
+        if is_regular_mode "${mode}"; then printf '%s\n' "${path}" >> "${REGULAR}" || return 1; fi
+    done < "${SELECT}" || return 1
+}
+
+# --- Publication ---
+
+# net_git <args> -- git for the clone, the commit and the push. With a remote
+# given (the tests) it is plain git. Otherwise it runs as 9atatimer-bot through
+# asbot: HTTPS, the bot's identity, and a credential that is the bot's token
+# alone (no user or system git config, so no keychain helper of the owner's).
+net_git() {
+    if [ -n "${TDS_PUBLIC_REMOTE:-}" ]; then
+        git "$@"
+    else
+        "${ASBOT}" env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+            git -c 'credential.helper=!gh auth git-credential' "$@"
+    fi
+}
+
+find_asbot() {
+    if [ -n "${TDS_PUBLIC_REMOTE:-}" ]; then return 0; fi
+    ASBOT="${TDS_PUBLIC_ASBOT:-}"
+    [ -n "${ASBOT}" ] || { [ -x "${SELF_DIR}/asbot" ] && ASBOT="${SELF_DIR}/asbot"; } || true
+    [ -n "${ASBOT}" ] || ASBOT="$(command -v asbot 2>/dev/null || true)"
+    if [ -z "${ASBOT}" ] || [ ! -x "${ASBOT}" ]; then
+        note "asbot not found; the publication is made as 9atatimer-bot or not at all"
+        return 1
+    fi
+}
+
+# build_tree -- hash each selected blob into the clone (the bytes streamed from
+# the source, never filtered) and print the tree they form.
+build_tree() {
+    local mode oid path got info="${TMP_ROOT}/index-info" index="${TMP_ROOT}/publish.index"
+    : > "${info}"
+    while IFS=$'\t' read -r mode oid path; do
+        got="$(src_git cat-file blob "${oid}" | git -C "${CLONE}" hash-object -w --stdin)" || return 1
+        if [ "${got}" != "${oid}" ]; then
+            note "blob ${oid} of ${path} did not survive the copy"
+            return 1
+        fi
+        printf '%s %s\t%s\0' "${mode}" "${oid}" "${path}" >> "${info}"
+    done < "${SELECT}"
+    GIT_INDEX_FILE="${index}" git -C "${CLONE}" update-index --add -z --index-info < "${info}" || return 1
+    GIT_INDEX_FILE="${index}" git -C "${CLONE}" write-tree
+}
+
+# publish_snapshot -- clone, replace the whole tree, commit once, push once.
+publish_snapshot() {
+    local remote="${TDS_PUBLIC_REMOTE:-${REMOTE_URL_PREFIX}/${TARGET}.git}"
+    local tree head_tree parent branch commit
+    find_asbot || return 1
+    CLONE="${TMP_ROOT}/target"
+    if ! net_git clone -q --no-checkout --template= -- "${remote}" "${CLONE}"; then
+        note "cannot clone ${TARGET}; nothing was published"
+        return 1
+    fi
+    tree="$(build_tree)" || { note "cannot build the snapshot tree; nothing was published"; return 1; }
+    parent="$(git -C "${CLONE}" rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null || true)"
+    if [ -n "${parent}" ]; then
+        branch="$(git -C "${CLONE}" symbolic-ref -q --short HEAD)" || { note "the clone's HEAD is detached"; return 1; }
+        head_tree="$(git -C "${CLONE}" rev-parse "${parent}^{tree}")"
+        if [ "${head_tree}" = "${tree}" ]; then
+            echo "tds-public: ${TARGET} already holds this snapshot; no commit made"
+            return 0
+        fi
+        commit="$(net_git -C "${CLONE}" commit-tree "${tree}" -p "${parent}" -m "release ${FULL_SHA}")" || return 1
+    else
+        branch="${EMPTY_REMOTE_BRANCH}"
+        commit="$(net_git -C "${CLONE}" commit-tree "${tree}" -m "release ${FULL_SHA}")" || return 1
+    fi
+    git -C "${CLONE}" update-ref "refs/heads/${branch}" "${commit}"
+    if ! net_git -C "${CLONE}" -c core.hooksPath=/dev/null push -q origin \
+            "refs/heads/${branch}:refs/heads/${branch}"; then
+        note "push to ${TARGET} failed; the target is unchanged"
+        return 1
+    fi
+    echo "tds-public: published ${TARGET} at ${commit} (release ${FULL_SHA})"
+}
+
+# --- Flow ---
+
+# collect <allow-file> -- run every rule that can run, so a refusal never
+# hides another. A step that cannot run is an `internal` refusal; the steps
+# every later rule depends on stop the run when they fail. Always returns 0:
+# the verdict is the refusal file.
+collect() {
+    local allow="$1" rc=0
+    run_check denylist-presence check_denylist_present
+    if ! FULL_SHA="$(src_git rev-parse --verify -q "${SHA_ARG}^{commit}" 2>/dev/null)" || [ -z "${FULL_SHA}" ]; then
+        add_refusal not-released "${SHA_ARG}" "does not name a commit in the source repo"
+        return 0
+    fi
+    run_check released check_released
+    if ! make_scratch_repo; then
+        add_refusal internal scratch-repo "the check could not run, so nothing can be cleared"
+        return 0
+    fi
+    load_allow_list "${allow}" || rc=$?
+    case "${rc}" in
+        0) ;;
+        3) return 0 ;;
+        *) add_refusal internal allow-list "the check could not run, so nothing can be cleared"; return 0 ;;
+    esac
+    if ! select_paths "${allow}"; then
+        add_refusal internal selection "the check could not run, so nothing can be cleared"
+        return 0
+    fi
+    EXPECTED_CHECKS=7
+    run_check submodules check_submodules
+    run_check symlinks check_symlinks
+    run_check git-crypt check_git_crypt
+    run_check denylist-scan check_denylist
+    case "${TARGET}" in
+        tds-utils-public) run_check github-in-mirror check_mirror_has_no_github ;;
+        workflows)        run_check workflow-triggers check_workflow_triggers ;;
+    esac
+    return 0
+}
+
+# final_guard -- the last word before anything is pushed: no recorded failure,
+# every check ran to the end, and the selection is whole.
+final_guard() {
+    local lines
+    if [ "${FAILED}" -ne 0 ]; then
+        note "a refusal could not be recorded; nothing was published"
+        return 1
+    fi
+    if [ "${ENTRY_COUNT}" -gt 0 ]; then
+        lines="$(wc -l < "${SELECT}")" || { add_refusal internal selection "the check could not run, so nothing can be cleared"; return 1; }
+        if [ "${lines//[[:space:]]/}" -eq 0 ] || [ "${CHECKS_OK}" -lt "${EXPECTED_CHECKS}" ]; then
+            add_refusal internal completion "the check could not run, so nothing can be cleared"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# print_refusals -- every refusal to stderr, with no tool that could fail
+# between the record and the human.
+print_refusals() {
+    local line
+    while IFS= read -r line; do printf '%s\n' "${line}" >&2; done < "${REFUSALS}"
+}
+
+# report_refusals -- print every refusal; return 1 when there were any.
+report_refusals() {
+    [ -s "${REFUSALS}" ] || return 0
+    print_refusals
+    note "${TARGET}: $(wc -l < "${REFUSALS}" | tr -d ' ') refusal(s); nothing was published"
+    return 1
+}
+
+# publish_target <target> <sha> -- the use case. Returns the exit status.
+publish_target() {
+    local allow="${TMP_ROOT}/allow"
+    REFUSALS="${TMP_ROOT}/refusals"; SELECT="${TMP_ROOT}/select"; REGULAR="${TMP_ROOT}/regular"
+    : > "${REFUSALS}"; : > "${SELECT}"; : > "${REGULAR}"
+    collect "${allow}" || add_refusal internal collect "the check could not run, so nothing can be cleared"
+    if [ ! -s "${REFUSALS}" ] && [ "${ENTRY_COUNT}" -gt 0 ]; then final_guard || true; fi
+    if [ "${DRY_RUN}" -eq 1 ] && [ -s "${SELECT}" ]; then
+        awk -F'\t' '{ print "tds-public: select: " $3 }' "${SELECT}" | redact_stream \
+            || add_refusal internal selection-report "the check could not run, so nothing can be cleared"
+    fi
+    if [ "${FAILED}" -ne 0 ]; then
+        print_refusals || true
+        note "a refusal could not be recorded; nothing was published"
+        return 1
+    fi
+    report_refusals || return 1
+    if [ "${ENTRY_COUNT}" -eq 0 ]; then
+        echo "tds-public: nothing to publish: ${ALLOW_PATH} has no entries"
+        return 0
+    fi
+    if [ "${DRY_RUN}" -eq 1 ]; then
+        echo "tds-public: dry run: $(wc -l < "${SELECT}" | tr -d ' ') path(s) for ${TARGET}; no refusals"
+        return 0
+    fi
+    publish_snapshot
+}
+
+# --- Main ---
+
+main() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -n) DRY_RUN=1; shift ;;
+            -h|--help) usage; return 0 ;;
+            --) shift; break ;;
+            -*) note "unknown option: $1"; usage; return 2 ;;
+            *) break ;;
+        esac
+    done
+    if [ $# -ne 2 ]; then usage; return 2; fi
+    TARGET="$1"; SHA_ARG="$2"
+    if ! is_target "${TARGET}"; then note "unknown target: ${TARGET} (${TARGETS})"; return 2; fi
+    if ! [[ ${SHA_ARG} =~ ^[0-9a-fA-F]{7,64}$ ]]; then note "not a commit sha: ${SHA_ARG}"; return 2; fi
+
+    SRC="${TDS_PUBLIC_SOURCE:-$(git -C "${SELF_DIR}" rev-parse --show-toplevel 2>/dev/null || true)}"
+    if [ -z "${SRC}" ] || ! git -C "${SRC}" rev-parse --git-dir > /dev/null 2>&1; then
+        note "no source repo (set TDS_PUBLIC_SOURCE)"
+        return 1
+    fi
+
+    trap cleanup EXIT
+    trap 'on_signal 130' INT
+    trap 'on_signal 143' TERM
+    trap 'on_signal 129' HUP
+    TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/tds-public.XXXXXX")"
+
+    publish_target
+}
+
+main "$@"

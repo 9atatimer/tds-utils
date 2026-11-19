@@ -5,6 +5,9 @@ Keeps private strings out of a public repo (issue #366).
 Code:
 
 - `bin/bleed-guard` -- the checker.
+- `lib/bleed-match.sh` -- its matcher (denylist resolution, hit reporting,
+  redaction), sourced from the script's real location and shared with
+  `bin/tds-public`; it must travel with `bin/bleed-guard`.
 - `git-hooks/template/hooks/pre-commit` -- runs it before the branch guard.
 - `bin/install-git-hook-templates` -- links it to `~/.local/bin/bleed-guard`
   and sets `bleedguard.checkerPath`.
