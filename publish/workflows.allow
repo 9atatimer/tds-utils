@@ -1,0 +1,17 @@
+# workflows.allow -- the paths published to 9atatimer/workflows.
+#
+# One path or glob per line, relative to the repository root. `#` starts a
+# comment. No negation. A path that no line names is not published, and a
+# line that matches no file at the released commit refuses the whole
+# publication. Runbook: docs/ops/tds-public.md.
+.github/workflows/ocr-review.yml
+.github/workflows/review-settled.yml
+.github/workflows/adherence.yml
+bin/ocr-review
+lib/ocr-review/**
+bin/review-settled
+lib/review-settled.mjs
+bin/adhere
+bin/decide
+lib/decide/**
+adherence/**

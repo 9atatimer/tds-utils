@@ -1,0 +1,6 @@
+# tds-utils-public.allow -- the paths published to 9atatimer/tds-utils-public.
+#
+# Intentionally empty until the owner decides what the mirror carries
+# (tds-utils Issue#833). An allow-list with no path lines publishes nothing.
+# Format when lines are added: one path or glob per line, `#` comments, no
+# negation. Runbook: docs/ops/tds-public.md.

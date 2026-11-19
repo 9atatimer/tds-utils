@@ -27,11 +27,32 @@ rebuild_agent_instructions() {
     fi
 }
 
+# publish_public_targets <release-worktree> -- publish each public target's
+# allow-listed snapshot of the commit that just went live (Issue#825). Both
+# targets are attempted whichever fails; a refusal or a push failure fails
+# the step, and the targets stay at their previous snapshot. The released
+# commit's own tds-public runs, never the one on PATH.
+publish_public_targets() {
+    local wt=$1 sha target status=0
+    if ! sha="$(git -C "${wt}" rev-parse HEAD)"; then
+        note "cannot read the release worktree's HEAD; run it again: ${wt}/bin/tds-public <target> <sha>"
+        return 1
+    fi
+    for target in workflows tds-utils-public; do
+        if ! "${wt}/bin/tds-public" "${target}" "${sha}"; then
+            note "tds-public ${target} failed; fix the cause, then run it again: ${wt}/bin/tds-public ${target} ${sha}"
+            status=1
+        fi
+    done
+    return "${status}"
+}
+
 # --- Flow functions ---
 
 run_steps() {
     local wt=$1 status=0
     rebuild_agent_instructions "${wt}" || status=1
+    publish_public_targets "${wt}" || status=1
     return "${status}"
 }
 
