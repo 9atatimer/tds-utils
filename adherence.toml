@@ -24,6 +24,11 @@ adapters = [
     # existing path only from the next change.
     "bin/seed-ci-magic",
     "ops/terraform/remvllm/lib/secrets.sh",
+    # Shell tools that are I/O glue over git. tds-utils PR#838 added a
+    # function to each before they were declared; the engine applies a
+    # declaration edit to an existing path only from the next change.
+    "bin/bleed-guard",
+    "bin/tds-post-release",
     # Created by this change (tds-utils Issue#828), declared by it: I/O glue
     # over git that publishes the allow-listed tree to a public repository.
     "bin/tds-public",
@@ -48,6 +53,8 @@ test = [
     "test/smoketest_agent_budget.sh",
     # Created by tds-utils PR#818, declared by it.
     "test/smoketest_monctl.sh",
+    # tds-utils PR#838 added cases to it before it was declared.
+    "test/smoketest_release.sh",
     # Created by this change (tds-utils Issue#828), declared by it.
     "test/smoketest_tds_public.sh",
 ]
