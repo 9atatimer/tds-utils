@@ -4,14 +4,35 @@
 # comment. No negation. A path that no line names is not published, and a
 # line that matches no file at the released commit refuses the whole
 # publication. Runbook: docs/ops/tds-public.md.
+#
+# Publish the minimum the callers need: the three reusable workflows and
+# exactly the files they fetch and run, nothing the engine's own tests,
+# evals or fixtures hold.
+
+# The three reusable workflows.
 .github/workflows/ocr-review.yml
 .github/workflows/review-settled.yml
 .github/workflows/adherence.yml
+
+# ocr-review.yml: sparse-checks out bin/ocr-review and lib/ocr-review.
 bin/ocr-review
 lib/ocr-review/**
+
+# review-settled.yml: sparse-checks out these two files.
 bin/review-settled
 lib/review-settled.mjs
+
+# adherence.yml: sparse-checks out bin/adhere, bin/decide, lib/decide and
+# adherence; then `uv sync --frozen --no-dev` (pyproject.toml, uv.lock,
+# .python-version, src/) and `npm ci` (node/package.json and lock).
+# bin/decide and lib/decide are also fetched by template-tools'
+# naatm-ci-magic.
 bin/adhere
 bin/decide
 lib/decide/**
-adherence/**
+adherence/pyproject.toml
+adherence/uv.lock
+adherence/.python-version
+adherence/src/**
+adherence/node/package.json
+adherence/node/package-lock.json
