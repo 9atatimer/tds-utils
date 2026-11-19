@@ -24,6 +24,11 @@ adapters = [
     # existing path only from the next change.
     "bin/seed-ci-magic",
     "ops/terraform/remvllm/lib/secrets.sh",
+    # Shell tools that are I/O glue over git. Declared ahead of tds-utils
+    # PR#838, which adds a function to each; the engine applies a
+    # declaration edit to an existing path only from the next change.
+    "bin/bleed-guard",
+    "bin/tds-post-release",
 ]
 "composition root" = [
     "adherence/src/adherence/container.py",
@@ -42,6 +47,8 @@ test = [
     "test/smoketest_agent_budget.sh",
     # Created by tds-utils PR#818, declared by it.
     "test/smoketest_monctl.sh",
+    # Declared ahead of tds-utils PR#838, which adds cases to it.
+    "test/smoketest_release.sh",
 ]
 
 [records]
