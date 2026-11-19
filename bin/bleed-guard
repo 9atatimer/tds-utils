@@ -33,10 +33,32 @@ set -euo pipefail
 # aborts reports no hits. Entries are ASCII identifiers, so C loses nothing.
 export LC_ALL=C
 
+# --- Shared library ---
+
+# The matcher lives in lib/bleed-match.sh, shared with bin/tds-public. This
+# script runs through symlinks (~/.local/bin/bleed-guard points into the
+# release worktree), so find the library from the script's real location.
+real_script_dir() {
+    local path="${BASH_SOURCE[0]}" dir
+    while [ -L "${path}" ]; do
+        dir="$(cd -P "$(dirname "${path}")" && pwd)"
+        path="$(readlink "${path}")"
+        case "${path}" in /*) ;; *) path="${dir}/${path}" ;; esac
+    done
+    (cd -P "$(dirname "${path}")" && pwd)
+}
+
+BLEED_LIB="$(real_script_dir)/../lib/bleed-match.sh"
+if [ ! -r "${BLEED_LIB}" ]; then
+    echo "bleed-guard: cannot read ${BLEED_LIB}" >&2
+    exit 2
+fi
+# shellcheck source=../lib/bleed-match.sh
+. "${BLEED_LIB}"
+
 # --- Constants ---
 
 MARKER_FILE="PUBLIC.REPO"
-DEFAULT_DENYLIST="${HOME:-}/workplace/tds-internal/ops/bleed-denylist"
 
 # --- Predicates ---
 
@@ -52,13 +74,6 @@ is_public_repo() { git cat-file -e ":${MARKER_FILE}" 2>/dev/null; }
 # --- Helpers ---
 
 note() { printf 'bleed-guard: %s\n' "$*" >&2; }
-
-resolve_denylist() {
-    local path="${TDS_BLEED_DENYLIST:-}"
-    [ -n "${path}" ] || path="$(git config --type=path --get bleedguard.denylist 2>/dev/null || true)"
-    [ -n "${path}" ] || path="${DEFAULT_DENYLIST}"
-    printf '%s\n' "${path}"
-}
 
 # staged_records -- "path<TAB>line<TAB>text" for every added line in the index,
 # plus "path<TAB>0<TAB>path" for every added or renamed file (its name is
@@ -84,45 +99,6 @@ staged_records() {
 tree_records() {
     git grep -z -l -I -e '' -- . 2>/dev/null \
         | xargs -0 awk '{ printf "%s\t%d\t%s\n", FILENAME, FNR, $0 }' || true
-}
-
-# match_records <denylist> -- read records on stdin; print one report line per
-# (record, entry) hit, naming the entry by its line in the denylist file.
-match_records() {
-    awk -v list="$1" '
-        BEGIN {
-            n = 0
-            while ((getline raw < list) > 0) {
-                lineno++
-                sub(/^[ \t]+/, "", raw); sub(/[ \t\r]+$/, "", raw)
-                if (raw == "" || substr(raw, 1, 1) == "#") continue
-                n++; entry[n] = tolower(raw); where[n] = lineno
-            }
-            close(list)
-        }
-        # redact(s) -- s with every entry, in any case, replaced by [redacted].
-        function redact(s,    i, low, at, out) {
-            for (i = 1; i <= n; i++) {
-                out = ""; low = tolower(s)
-                while ((at = index(low, entry[i])) > 0) {
-                    out = out substr(s, 1, at - 1) "[redacted]"
-                    s = substr(s, at + length(entry[i])); low = substr(low, at + length(entry[i]))
-                }
-                s = out s
-            }
-            return s
-        }
-        {
-            tab1 = index($0, "\t"); path = substr($0, 1, tab1 - 1); rest = substr($0, tab1 + 1)
-            tab2 = index(rest, "\t"); line = substr(rest, 1, tab2 - 1); text = tolower(substr(rest, tab2 + 1))
-            shown = redact(path)
-            for (i = 1; i <= n; i++) {
-                if (index(text, entry[i]) == 0) continue
-                if (line == 0) printf "%s: file name matches denylist entry at line %d\n", shown, where[i]
-                else           printf "%s:%s: matches denylist entry at line %d\n", shown, line, where[i]
-            }
-        }
-    '
 }
 
 # --- Flow ---

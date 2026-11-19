@@ -435,10 +435,72 @@ case_the_real_post_release_rebuilds_once() {
     bold "case: this repo's bin/tds-post-release rebuilds the agent instruction files once"; echo
     local root rc mark="${WORKROOT}/mark-real-post"
     root="$(make_repo_with_post_release postreal "$(dirname "${RELEASER}")/tds-post-release")"
-    TDS_AGENT_SOURCE="${WORKROOT}/elsewhere" MARK="${mark}" run_release "${root}" && rc=0 || rc=$?
+    # The released tree's own tds-public is a stub that records, so this step
+    # can never reach a real remote.
+    printf '#!/bin/sh\necho "public $1" >> "$MARK_PUBLIC"\n' > "${root}/bin/tds-public"
+    chmod +x "${root}/bin/tds-public"
+    git -C "${root}" add bin/tds-public
+    git -C "${root}" commit -qm "stub tds-public"
+    TDS_AGENT_SOURCE="${WORKROOT}/elsewhere" MARK="${mark}" MARK_PUBLIC="${mark}-public" run_release "${root}" && rc=0 || rc=$?
     assert "exits 0"                          "[ ${rc} -eq 0 ]"
     assert "agent-instructions ran once, without the override" \
         "[ \"$(cat "${mark}" 2>/dev/null)\" = ran ]"
+    assert "the released tds-public ran for each public target, once" \
+        "[ \"$(cat "${mark}-public" 2>/dev/null)\" = \"$(printf 'public workflows\npublic tds-utils-public')\" ]"
+}
+
+# make_post_release_tree <name> <tds-public body> -- a committed work tree
+# with a stub bin/agent-instructions and a stub bin/tds-public running the
+# given shell body; the stub records "<target> <sha>" lines to $MARK_PUBLIC.
+# Echoes the tree. tds-post-release always runs <tree>/bin/tds-public, so the
+# stub keeps these cases off every real remote.
+make_post_release_tree() {
+    local name="$1" body="$2" tree="${WORKROOT}/$1-tree"
+    mkdir -p "${tree}/bin"
+    git -C "${tree}" init -q -b release
+    git -C "${tree}" config user.email t@example.com
+    git -C "${tree}" config user.name Test
+    printf '#!/bin/sh\nexit 0\n' > "${tree}/bin/agent-instructions"
+    printf '#!/bin/sh\necho "$1 $2" >> "$MARK_PUBLIC"\n%s\n' "${body}" > "${tree}/bin/tds-public"
+    chmod +x "${tree}/bin/agent-instructions" "${tree}/bin/tds-public"
+    git -C "${tree}" add bin
+    git -C "${tree}" commit -qm "tree"
+    printf '%s\n' "${tree}"
+}
+
+case_post_release_publishes_both_targets() {
+    bold "case: tds-post-release publishes both public targets at the worktree's HEAD"; echo
+    local tree rc mark="${WORKROOT}/mark-pub-ok"
+    tree="$(make_post_release_tree pubok 'exit 0')"
+    MARK_PUBLIC="${mark}" "$(dirname "${RELEASER}")/tds-post-release" "${tree}" >"${WORKROOT}/out" 2>&1 && rc=0 || rc=$?
+    assert "exits 0" "[ ${rc} -eq 0 ]"
+    assert "each target ran once with the sha of the worktree's HEAD" \
+        "[ \"$(cat "${mark}")\" = \"$(printf 'workflows %s\ntds-utils-public %s' "$(head_of "${tree}")" "$(head_of "${tree}")")\" ]"
+}
+
+case_a_failing_tds_public_fails_the_step_and_both_are_attempted() {
+    bold "case: a failing tds-public exits tds-post-release 1, and both targets are attempted"; echo
+    local tree rc mark="${WORKROOT}/mark-pub-fail"
+    tree="$(make_post_release_tree pubfail '[ "$1" != workflows ]')"
+    MARK_PUBLIC="${mark}" "$(dirname "${RELEASER}")/tds-post-release" "${tree}" >"${WORKROOT}/out" 2>&1 && rc=0 || rc=$?
+    assert "exits 1" "[ ${rc} -eq 1 ]"
+    assert "the target after the failed one was still attempted" \
+        "[ \"$(wc -l < "${mark}" | tr -d ' ')\" -eq 2 ] && grep -q '^tds-utils-public ' '${mark}'"
+    assert "the note names the failed target and the command to rerun" \
+        "grep -q 'tds-public workflows failed' '${WORKROOT}/out' && grep -q '${tree}/bin/tds-public workflows $(head_of "${tree}")' '${WORKROOT}/out'"
+    assert "the passing target is not reported failed" "! grep -q 'tds-public tds-utils-public failed' '${WORKROOT}/out'"
+}
+
+case_a_missing_tds_public_fails_closed() {
+    bold "case: a release tree with no bin/tds-public fails the step, never skips it"; echo
+    local tree rc
+    tree="$(make_post_release_tree pubgone 'exit 0')"
+    git -C "${tree}" rm -q -f bin/tds-public
+    git -C "${tree}" commit -qm "no tds-public"
+    MARK_PUBLIC="${WORKROOT}/mark-pub-gone" "$(dirname "${RELEASER}")/tds-post-release" "${tree}" >"${WORKROOT}/out" 2>&1 && rc=0 || rc=$?
+    assert "exits 1" "[ ${rc} -eq 1 ]"
+    assert "both targets are named as failed" \
+        "grep -q 'tds-public workflows failed' '${WORKROOT}/out' && grep -q 'tds-public tds-utils-public failed' '${WORKROOT}/out'"
 }
 
 case_private_unit_advances() {
@@ -710,6 +772,9 @@ main() {
     case_release_rebuilds_agent_instructions
     case_release_runs_the_released_post_release_steps
     case_the_real_post_release_rebuilds_once
+    case_post_release_publishes_both_targets
+    case_a_failing_tds_public_fails_the_step_and_both_are_attempted
+    case_a_missing_tds_public_fails_closed
     case_a_failing_post_release_leaves_the_release_standing
     case_the_released_copy_says_nothing_about_itself
     case_agent_instructions_failure_does_not_fail_release

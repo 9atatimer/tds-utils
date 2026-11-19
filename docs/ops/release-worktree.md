@@ -97,6 +97,9 @@ That IS the install step for this machine. The moment `release` moves, the new
 config is what every new shell, editor, and agent session loads. Nothing else
 runs.
 
+The post-release step also publishes the allow-listed public targets with
+`bin/tds-public` (`docs/ops/tds-public.md`).
+
 A committish argument belongs to the unit you named with `-u`, or to the public
 unit when you name none; every other unit releases its own reviewed line
 (`master` here, `main` in tds-internal -- `tds-release` asks each repo rather
