@@ -274,6 +274,7 @@ and a local bare repository as the target remote.
 | Snapshots, never history | Old commits cannot leak what a later release removed | Issue#825 |
 | Select and refuse; never rewrite | A rewritten file is a file nobody reviewed in that form | Issue#825 |
 | Paths kept verbatim | The workflows' sparse checkouts keep working; the step has no path mapping to get wrong | Issue#825 |
+| The mirror's first allow-list is `emacs/dot.emacs.d/**` alone, with no README or setup script | The owner needs only the emacs configuration on other machines; start small and add trees one at a time | Owner, 2026-11-20; Issue#833 |
 
 ---
 

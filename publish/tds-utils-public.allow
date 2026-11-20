@@ -1,6 +1,13 @@
 # tds-utils-public.allow -- the paths published to 9atatimer/tds-utils-public.
 #
-# Intentionally empty until the owner decides what the mirror carries
-# (tds-utils Issue#833). An allow-list with no path lines publishes nothing.
-# Format when lines are added: one path or glob per line, `#` comments, no
-# negation. Runbook: docs/ops/tds-public.md.
+# One path or glob per line, relative to the repository root. `#` starts a
+# comment. No negation. A path that no line names is not published, and a
+# line that matches no file at the released commit refuses the whole
+# publication. Runbook: docs/ops/tds-public.md.
+#
+# The mirror carries the emacs configuration, for use on machines other than
+# the owner's laptop (Issue#833): clone the mirror and link
+# ~/.emacs.d to its emacs/dot.emacs.d. Nothing else is published until the
+# owner adds it here.
+
+emacs/dot.emacs.d/**
