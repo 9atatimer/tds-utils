@@ -4,7 +4,8 @@
 # docs/ops/ocr-review.md).
 #
 # A repository adopts the review by copying docs/ocr-review-caller.yml to
-# .github/workflows/ocr-review-caller.yml; this tool does the rest:
+# .github/workflows/ocr-review-caller.yml, pinned to a commit of the public
+# 9atatimer/workflows; this tool does the rest:
 #
 #   - the secret OLLAMA_GATEWAY_OP_SA_TOKEN, the 1Password service-account
 #     token that reads the gateway caller item;
@@ -51,10 +52,11 @@
 #   -n         dry run: print the plan, read no token, set nothing
 #   -h         this help
 #
-# Pin states: current (no change to the ocr-review files on tds-utils master
-# since the pin), stale (there are; bump both SHAs in the caller),
+# Pin states: current (no change to the ocr-review files on 9atatimer/workflows
+# main since the pin), stale (there are; bump both SHAs in the caller),
 # placeholder (the template's zeros), mismatch (tools_ref differs from the
-# pinned SHA), unknown (GitHub could not compare the pin).
+# pinned SHA), unknown (GitHub could not compare the pin), none (the caller
+# does not `uses:` 9atatimer/workflows, e.g. a pin of a tds-utils commit).
 #
 # Exit: 0 every consumer ready; 1 one is not (a stale pin alone is only
 # reported); 2 could not determine, or seed refused. Needs `gh`
@@ -68,7 +70,8 @@ DEFAULT_MODEL="qwen3.6:latest"
 VARIABLES="OLLAMA_GATEWAY_OP_ITEM OLLAMA_GATEWAY_URL OLLAMA_GATEWAY_MODEL"
 CALLER_PATH=".github/workflows/ocr-review-caller.yml"
 CALLER_WORKFLOW="ocr-review-caller.yml"
-TOOLS_REPO="9atatimer/tds-utils"
+TOOLS_REPO="9atatimer/workflows"
+TOOLS_BRANCH="main"
 PLACEHOLDER="0000000000000000000000000000000000000000"
 REPO_LIST_LIMIT=1000
 ABSENT=4
@@ -112,7 +115,7 @@ fetch_caller() {
 
 # The SHA the caller pins the reusable workflow at, from its body on stdin.
 caller_pin() {
-    sed -n 's|.*uses:[[:space:]]*9atatimer/tds-utils/\.github/workflows/ocr-review\.yml@\([0-9a-fA-F]*\).*|\1|p' | head -1
+    sed -n 's|.*uses:[[:space:]]*9atatimer/workflows/\.github/workflows/ocr-review\.yml@\([0-9a-fA-F]*\).*|\1|p' | head -1
 }
 
 # The SHA the caller fetches the step commands at (tools_ref), from stdin.
@@ -120,11 +123,12 @@ caller_tools_ref() {
     sed -n "s|.*tools_ref:[[:space:]]*['\"]\{0,1\}\([0-9a-fA-F]*\).*|\1|p" | head -1
 }
 
-# How many ocr-review files changed on tds-utils master since PIN; fails
+# How many ocr-review files changed on 9atatimer/workflows main since PIN (a
+# commit of that repository: each release is one snapshot commit there); fails
 # when GitHub cannot compare (an unknown or unpushed SHA).
 changes_since() {
     local pin="$1"
-    gh api "repos/${TOOLS_REPO}/compare/${pin}...master" \
+    gh api "repos/${TOOLS_REPO}/compare/${pin}...${TOOLS_BRANCH}" \
         --jq '[.files[]?.filename | select(startswith(".github/workflows/ocr-review.yml") or startswith("bin/ocr-review") or startswith("lib/ocr-review/"))] | length' 2>/dev/null
 }
 

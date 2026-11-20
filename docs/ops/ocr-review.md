@@ -23,8 +23,10 @@ laptop's model through the Ollama Gateway.
   `.github/workflows/ocr-review-caller.yml` in the repo, on a branch, and
   land it the way that repo lands changes.
 - In the copy, replace BOTH placeholder SHAs (the `uses:` pin and
-  `tools_ref`) with the same tds-utils `master` commit that carries
-  `.github/workflows/ocr-review.yml`. A reusable workflow cannot learn the
+  `tools_ref`) with the same commit of the public `9atatimer/workflows`
+  (its `main` head carries `.github/workflows/ocr-review.yml`; each release
+  adds one snapshot commit there, and no tds-utils sha exists in it). The
+  caller does not pass `tools_repository`. A reusable workflow cannot learn the
   commit it was called at, so the caller names it twice; `status` flags a
   mismatch.
 - Seed the secret and variables (next section).
@@ -593,7 +595,8 @@ Nine-At-A-Time-Media/Spot-the-clone (private, on the runner pool).
 
 - After the PR merges, bump the pilot's caller: replace BOTH SHAs in
   `.github/workflows/ocr-review-caller.yml` (the `uses:` ref and
-  `tools_ref`) with the merge commit, in a PR there. `uses:` pins the
+  `tools_ref`) with a `9atatimer/workflows` commit that carries the change
+  (the release's snapshot commit), in a PR there. `uses:` pins the
   YAML; `tools_ref` pins the `bin/` and `lib/` code the YAML runs. A
   reusable workflow cannot learn which commit it was called at, so the
   caller passes it twice, and the two must match.

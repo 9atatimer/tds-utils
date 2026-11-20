@@ -3,9 +3,10 @@
 # (`bin/adhere --stage ci judge`), writes the verdict, findings, notices and
 # coverage to the job summary, and keeps the findings as a SARIF run
 # artifact.
-# Design: docs/design/DESIGN.ARCH-ADHERENCE.md; architecture:
-# docs/design/ARCHITECTURE.ARCH-ADHERENCE.md (Where it runs, Persistence,
-# Security mitigations, Operability).
+# Design: DESIGN.ARCH-ADHERENCE.md; architecture:
+# ARCHITECTURE.ARCH-ADHERENCE.md (Where it runs, Persistence, Security
+# mitigations, Operability) -- both in docs/design/ of the private source
+# repository, not here.
 #
 # One job:
 #
@@ -100,20 +101,23 @@
 #
 # Hosted here because a public repository's reusable workflow can be called
 # from both owners (the review-settled.yml and ocr-review.yml precedent).
-# The engine is fetched at `tools_ref`: a reusable workflow cannot learn the
-# commit it was called at, so the caller passes that commit again, and pins
-# `uses:` and `tools_ref` together (the same SHA; tds-utils Issue#453 names
-# the cost of two pins).
+# The engine is fetched from `tools_repository` (default: this repository)
+# at `tools_ref`: a reusable workflow cannot learn the commit it was called
+# at, so the caller passes that commit again, and pins `uses:` and
+# `tools_ref` together (the same SHA; tds-utils Issue#453 names the cost of
+# two pins).
 #
-# Caller shape (this repository calls it from the `adherence-judge` job in
-# dist-ci.yml, with `uses: ./.github/workflows/adherence.yml`):
+# Caller shape (the source repository calls it from its own `adherence-judge`
+# job with `uses: ./.github/workflows/adherence.yml` and
+# `tools_repository: ${{ github.repository }}`, so a change to the engine is
+# judged by itself; every other repository uses the form below):
 #
 #   on:
 #     pull_request:
 #       types: [opened, synchronize, reopened, ready_for_review]
 #   jobs:
 #     adherence:
-#       uses: 9atatimer/tds-utils/.github/workflows/adherence.yml@<sha>
+#       uses: 9atatimer/workflows/.github/workflows/adherence.yml@<sha>
 #       permissions:
 #         contents: read
 #         pull-requests: read
@@ -140,7 +144,7 @@
 #   adherence  bin/adhere measure --json
 #
 # here, where bin/adhere is in the repository; elsewhere the argv names the
-# launcher where that job put tds-utils. It is a program and its fixed
+# launcher where that job put the engine. It is a program and its fixed
 # arguments, never an interpreter, and `measure` binds the laptop stage,
 # which asks no judge without the door's address.
 #
@@ -152,8 +156,13 @@ name: adherence
 on:
   workflow_call:
     inputs:
+      tools_repository:
+        description: The repository to fetch the engine from; the default is the public repository this workflow is published in.
+        type: string
+        required: false
+        default: 9atatimer/workflows
       tools_ref:
-        description: The tds-utils commit to run the engine from; the same SHA the caller pins this workflow at.
+        description: The commit of tools_repository to run the engine from; the same SHA the caller pins this workflow at.
         type: string
         required: true
       base:
@@ -219,7 +228,7 @@ jobs:
       - name: Fetch the engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: 9atatimer/tds-utils
+          repository: ${{ inputs.tools_repository }}
           ref: ${{ inputs.tools_ref }}
           path: .adherence-tools
           persist-credentials: false

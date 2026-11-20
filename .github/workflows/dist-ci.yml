@@ -413,9 +413,10 @@ jobs:
   # force-pushes so the replaced tip is not fetched, the staging commit's
   # first parent (the base it was built on), named here.
   #
-  # `tools_ref` is the judged head itself, as `uses:` is this file's own
-  # copy of the workflow: the two pins move together, and a change to the
-  # engine is judged by the engine it carries. A pull request from a fork
+  # `tools_repository` is this repository and `tools_ref` the judged head
+  # itself, as `uses:` is this file's own copy of the workflow: the two move
+  # together, and a change to the engine is judged by the engine it carries
+  # (an outside caller fetches 9atatimer/workflows, the default; Issue#829). A pull request from a fork
   # is skipped, so no fork's head is ever run as the engine. The one secret
   # is the adherence vault's read-only 1Password service account; the
   # judge's token and the warehouse's credential are items it finds there
@@ -430,6 +431,7 @@ jobs:
       contents: read
       pull-requests: read
     with:
+      tools_repository: ${{ github.repository }}
       tools_ref: ${{ github.event.pull_request.head.sha || github.sha }}
       base: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/tedium/')) && format('{0}^1', github.sha) || '' }}
       timeout_minutes: 15

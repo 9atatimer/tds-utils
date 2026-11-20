@@ -23,9 +23,10 @@
 # workflow can be called from anywhere. The decision logic is
 # lib/review-settled.mjs; the CLI is bin/review-settled.
 #
-# Caller shape: see review-settled-caller.yml next to this file (this
-# repo's own call), which every enrolled repo copies with
-# `uses: 9atatimer/tds-utils/.github/workflows/review-settled.yml@master`.
+# Caller shape: every enrolled repo calls it with
+# `uses: 9atatimer/workflows/.github/workflows/review-settled.yml@<sha>`
+# and `tools_ref: <the same sha>` (or `main`). The source repository's own
+# call (review-settled-caller.yml, private) passes tools_repository: itself.
 # GitHub has no workflow trigger for a thread being resolved, so the
 # caller fires on the review, on replies in threads, on PR comments (the
 # epilogue posted after resolving), on pushes, on a review request, and
@@ -69,11 +70,16 @@ on:
         type: number
         required: false
         default: 180
-      tools_ref:
-        description: The tds-utils ref to run the checker from (pin to a sha to freeze it).
+      tools_repository:
+        description: The repository to fetch the checker from; the default is the public repository this workflow is published in.
         type: string
         required: false
-        default: master
+        default: 9atatimer/workflows
+      tools_ref:
+        description: The ref of tools_repository to run the checker from (pin to a sha to freeze it).
+        type: string
+        required: false
+        default: main
 
 permissions:
   contents: read
@@ -93,12 +99,12 @@ jobs:
       pull-requests: read
       contents: read
     steps:
-      # The checker lives in this (public) repo; the caller may be any
-      # repo, so fetch just the two files it needs.
+      # The checker lives in tools_repository (this public repo by default);
+      # the caller may be any repo, so fetch just the two files it needs.
       - name: Fetch the checker
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          repository: 9atatimer/tds-utils
+          repository: ${{ inputs.tools_repository }}
           ref: ${{ inputs.tools_ref }}
           path: .review-settled
           sparse-checkout: |

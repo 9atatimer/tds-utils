@@ -60,7 +60,7 @@ trap cleanup EXIT INT TERM HUP
 # ${FAKE_STATE}/org/<owner>/secret.repos      org secret's selected repos, served a page
 #                                             at a time like GitHub; 409 unless selected
 # ${FAKE_STATE}/org/<owner>/var.<NAME>.{visibility,repos}  the same for an org variable
-# ${FAKE_STATE}/stale/<pin>                   compare <pin>...master touches ocr paths
+# ${FAKE_STATE}/stale/<pin>                   9atatimer/workflows compare <pin>...main touches ocr paths
 # ${FAKE_STATE}/log                           every write and every op read
 
 install_fakes() {
@@ -115,7 +115,7 @@ case "${args}" in
         f="$(repo_dir "${repo}")/caller"
         [ -f "${f}" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
         base64 < "${f}" ;;
-    *"tds-utils/compare/"*)
+    *"repos/9atatimer/workflows/compare/"*"...main "*)
         pin=$(printf '%s' "${args}" | sed -n 's|.*compare/\([0-9a-f]*\)\.\.\..*|\1|p')
         if [ -e "${state}/stale/${pin}" ]; then echo 2; else echo 0; fi ;;
     "api repos/"*"/actions/secrets/"*)
@@ -182,7 +182,7 @@ EOF
 }
 
 caller_at() {
-    printf 'jobs:\n  ocr-review:\n    uses: 9atatimer/tds-utils/.github/workflows/ocr-review.yml@%s\n    with:\n      tools_ref: %s\n' "$1" "$2"
+    printf 'jobs:\n  ocr-review:\n    uses: 9atatimer/workflows/.github/workflows/ocr-review.yml@%s\n    with:\n      tools_ref: %s\n' "$1" "$2"
 }
 
 # fixture <name> -- a fresh FAKE_STATE:
@@ -246,11 +246,15 @@ case_status_user_owner() {
 }
 
 case_status_stale_pin() {
-    bold "status: a pin behind master on the ocr-review files is stale"; echo
+    bold "status: a pin behind 9atatimer/workflows main on the ocr-review files is stale"; echo
     local s; s=$(fixture stale1)
     caller_at "${PIN_OLD}" "${PIN_OLD}" > "${s}/repos/9atatimer/gamma/caller"
     run "${s}" status
     assert "gamma: stale" "line_of 9atatimer/gamma | grep -q stale"
+    printf 'jobs:\n  ocr-review:\n    uses: 9atatimer/tds-utils/.github/workflows/ocr-review.yml@%s\n    with:\n      tools_ref: %s\n' "${PIN_NEW}" "${PIN_NEW}" > "${s}/repos/9atatimer/gamma/caller"
+    run "${s}" status
+    assert "gamma: a pin of a tds-utils commit is not a 9atatimer/workflows pin, so it is not current" \
+        "line_of 9atatimer/gamma | grep -q none && ! line_of 9atatimer/gamma | grep -q current"
 }
 
 case_status_org_owner() {

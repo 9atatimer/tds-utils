@@ -283,6 +283,23 @@ case_workflow_triggers() {
     workflow_case "with on: workflow_call as a scalar" $'on: workflow_call\njobs: {}\n' ok
 }
 
+case_real_workflows_pass_trigger_rule() {
+    bold "case: the three published reusable workflows pass the trigger rule (workflows target, dry run)"; echo
+    local wf
+    make_case realwf
+    for wf in ocr-review review-settled adherence; do
+        mkdir -p "${SRC}/.github/workflows"
+        cp "${REPO_DIR}/.github/workflows/${wf}.yml" "${SRC}/.github/workflows/${wf}.yml"
+    done
+    src_allow workflows .github/workflows/ocr-review.yml .github/workflows/review-settled.yml .github/workflows/adherence.yml
+    release_now
+    run_tool -n workflows "${SHA}"
+    assert "Given the real ocr-review, review-settled and adherence workflows, When a dry run selects them, Then no refusal and the exit is 0" \
+        '[ "${RC}" -eq 0 ] && ! contains_ci "${OUT}" "refused"'
+    assert "  ... and all three were selected" \
+        'contains "${OUT}" "3 path(s)"'
+}
+
 case_trigger_rule_only_for_workflows_target() {
     bold "case: the trigger rule applies only to the workflows target"; echo
     make_case trigscope
@@ -960,6 +977,7 @@ main() {
     case_no_denylist_refuses
     case_stale_allow_line_refuses
     case_workflow_triggers
+    case_real_workflows_pass_trigger_rule
     case_trigger_rule_only_for_workflows_target
     case_mirror_never_receives_github
     case_git_crypt_file_refuses

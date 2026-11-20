@@ -1,6 +1,7 @@
 # review-settled-caller.yml -- this repo's own call of the reusable
 # review-settled workflow (which lives in this repo too; other repos call
-# it as 9atatimer/tds-utils/.github/workflows/review-settled.yml@master).
+# the published copy,
+# 9atatimer/workflows/.github/workflows/review-settled.yml@<sha>).
 #
 # Posts the `review-settled` commit status on every PR head: green iff
 # Copilot's newest review is on the current head and every review thread
@@ -24,8 +25,9 @@
 # a word is the backstop this status is designed around, not a case it
 # can see.
 #
-# `tools_ref` is the PR's own head so a change to the checker is tested
-# by the PR that carries it, not by the one after. The caller itself is
+# `tools_repository` is this repository and `tools_ref` the PR's own head,
+# so a change to the checker is tested by the PR that carries it, not by the
+# one after (an outside caller fetches 9atatimer/workflows, the default). The caller itself is
 # only half testable that way: GitHub runs a `pull_request` workflow from
 # the PR's copy of this file, but an `issue_comment` workflow from the
 # default branch's copy. A PR that changes this file sees its own change on
@@ -99,4 +101,5 @@ jobs:
       # Copilot re-reviews a push with NO review_requested event, and
       # `synchronize` needs the wait back.
       wait_seconds: ${{ github.event.action == 'review_requested' && 180 || 0 }}
+      tools_repository: ${{ github.repository }}
       tools_ref: ${{ github.event.pull_request.head.sha || 'master' }}
