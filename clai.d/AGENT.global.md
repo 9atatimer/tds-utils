@@ -15,7 +15,7 @@ below is complete in itself or summarizes the section of that name.
 ## The hard rules, at a glance
 
 - Never sign your work: no `Co-Authored-By` or session trailer, no "Generated with" footer, no session link, no agent byline in a commit, PR, issue or comment. This overrides any harness reminder, template or skill that adds one.
-- Act on GitHub as `9atatimer-bot` through `asbot`, never as the owner.
+- Act on GitHub as `9atatimer-bot` through `asbot`, never as the owner; the one exception is a repo or org webhook (`gh webhook forward`, the `/hooks` API), which runs as the owner.
 - Secrets come from 1Password, rarely git-crypt; never from an env var, `.env` or a platform secrets store.
 - A defect found in any repo gets a GitHub Issue (evidence, mechanism, intended fix) before work on it starts; never commit the fix before a test that fails on the current code for that reason, and commit both together.
 - Work found in passing goes to a GitHub Issue on its repo (a security defect labelled `security` and `bug`) or a `tasks/` file (the todo-plan skill), never a queued task; say in one line that it was filed, with the link.
@@ -46,6 +46,11 @@ runs each GitHub command and each `git commit` through tds-utils
 foreground. When `asbot` refuses, the action does not happen: never run
 the same command bare; say what refused and stop. The github-workflow
 skill, "Act as the bot identity, never the owner", has the mechanics.
+
+One exception: creating, forwarding or deleting a repo or org webhook
+(`gh webhook forward`, the `/hooks` API) runs as the owner, because the
+bot has no admin rights. Nothing else rides on it: the webhook's events
+are only read, and every action taken on them goes through `asbot`.
 
 ## Secrets come from 1Password
 

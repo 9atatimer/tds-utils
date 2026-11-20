@@ -34,8 +34,12 @@ call it.
 turn are timers. So is a `Monitor` whose body loops on `sleep`, and a
 `run_in_background` command that loops on an interval. Push-based watches
 are fine: a `Monitor` `ws:` source, `gh webhook forward`, or one
-background command that exits when a condition becomes true. "Keep an eye
-on X" is not a request for a schedule; only a `/loop` the human starts is.
+background command that exits when a condition becomes true. `gh webhook
+forward` runs as the owner, under the global file's webhook exception.
+To wait on a reviewer's reply (OCR, Copilot), run that watch with
+`run_in_background`; do not end the turn and hope the reply is noticed.
+"Keep an eye on X" is not a request for a schedule; only a `/loop` the
+human starts is.
 
 ## Long commands go in the background
 
