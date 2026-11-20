@@ -91,8 +91,8 @@ test('caller: permissions are exactly contents read, pull-requests write, issues
 
 test('caller: one job, using the reusable workflow pinned by a commit SHA, with tools_ref at the same SHA', () => {
   assert.equal(jobsOf(CALLER).length, 1);
-  const uses = CALLER.match(/uses:\s*9atatimer\/tds-utils\/\.github\/workflows\/ocr-review\.yml@(\S+)/);
-  assert.ok(uses, 'uses the tds-utils reusable workflow');
+  const uses = CALLER.match(/uses:\s*9atatimer\/workflows\/\.github\/workflows\/ocr-review\.yml@(\S+)/);
+  assert.ok(uses, 'uses the public 9atatimer/workflows reusable workflow');
   assert.match(uses[1], SHA);
   const toolsRef = CALLER.match(/tools_ref:\s*'?([0-9a-f]+)'?/);
   assert.ok(toolsRef, 'passes tools_ref');
@@ -129,7 +129,7 @@ test('caller: the backend reaches the reusable workflow on a dispatch only (Issu
 test('reusable: workflow_call only, with pr, model, backend, tools_ref and the one secret', () => {
   assert.deepEqual(keysAt(block(REUSABLE, 'on'), 2), ['workflow_call']);
   const call = block(block(REUSABLE, 'on'), 'workflow_call', 2);
-  assert.deepEqual(keysAt(block(call, 'inputs', 4), 6).sort(), ['backend', 'long_review_files', 'long_review_lines', 'model', 'pr', 'review_runs_on', 'review_timeout_minutes', 'tools_ref']);
+  assert.deepEqual(keysAt(block(call, 'inputs', 4), 6).sort(), ['backend', 'long_review_files', 'long_review_lines', 'model', 'pr', 'review_runs_on', 'review_timeout_minutes', 'tools_ref', 'tools_repository']);
   assert.deepEqual(keysAt(block(call, 'secrets', 4), 6), ['OLLAMA_GATEWAY_OP_SA_TOKEN']);
 });
 
@@ -405,12 +405,18 @@ test('reusable: authorize passes the changed-file count on, and the record step 
   assert.match(record, /REVIEW_TIMEOUT_MINUTES:\s*\$\{\{\s*needs\.authorize\.outputs\.review_timeout_minutes \|\| inputs\.review_timeout_minutes\s*\}\}/);
 });
 
-test('caller: the template adopters copy is the live caller but for its two pins', () => {
-  const live = readFileSync(join(ROOT, '.github/workflows/ocr-review-caller.yml'), 'utf8');
+test('caller: the template adopters copy is the live caller but for its repository, its two pins and tools_repository', () => {
+  // The live caller is this repository's own: it uses the workflow from here
+  // (and passes tools_repository); an adopter's uses the public repository.
+  // Header comments differ (each says where its own `uses:` points); the YAML
+  // below them is what is compared.
+  const live = lines(readFileSync(join(ROOT, '.github/workflows/ocr-review-caller.yml'), 'utf8')).join('\n');
   const unpinned = live
+    .replace('uses: 9atatimer/tds-utils/', 'uses: 9atatimer/workflows/')
+    .replace(/^ +tools_repository:.*\n/m, '')
     .replace(/(ocr-review\.yml@)[0-9a-f]{40}/, '$1' + '0'.repeat(40))
     .replace(/(tools_ref:\s*')[0-9a-f]{40}'/, `$1${'0'.repeat(40)}'`);
-  assert.equal(CALLER, unpinned);
+  assert.equal(lines(CALLER).join('\n'), unpinned);
 });
 
 test('caller: the review gets 9 minutes on the pool, 40 on hosted runners, unless the repository sets its own', () => {

@@ -4,8 +4,8 @@
 # laptop's model through the Ollama Gateway, or -- when the owner's
 # OCR_BACKEND variable or a dispatch says so -- from Cloudflare AI Gateway
 # (cf-ai-gateway, Issue#481) or the Anthropic API (anthropic).
-# Design: docs/design/OCR-ON-DEMAND.DESIGN.md; runbook:
-# docs/ops/ocr-review.md.
+# Design and runbook (docs/design/OCR-ON-DEMAND.DESIGN.md,
+# docs/ops/ocr-review.md) live in the private source repository, not here.
 #
 # The core guarantee: a review is never a silent false negative. Every run
 # that is not skipped writes a run record (job summary + artifact) and, but
@@ -46,10 +46,12 @@
 # and _MODEL.
 #
 # The step commands are bin/ocr-review (decisions in lib/ocr-review/),
-# fetched at `tools_ref`. A reusable workflow cannot learn the commit it was
-# called at, so the caller passes that commit again as tools_ref; the
-# caller template sets both to the same SHA and bin/seed-ocr-review status
-# flags a mismatch.
+# fetched from `tools_repository` (default: this repository) at `tools_ref`.
+# A reusable workflow cannot learn the commit it was called at, so the
+# caller passes that commit again as tools_ref; the caller template sets both
+# to the same SHA of this repository, and bin/seed-ocr-review status (in the
+# private source repository) flags a mismatch. The source repository's own
+# caller passes tools_repository: its own name.
 #
 # PR-controlled text (comment bodies, branch names, paths, findings)
 # reaches a script only through env: or files, never through an expression
@@ -74,8 +76,13 @@ on:
         type: string
         required: false
         default: ''
+      tools_repository:
+        description: The repository to fetch the step commands from; the default is the public repository this workflow is published in.
+        type: string
+        required: false
+        default: 9atatimer/workflows
       tools_ref:
-        description: The tds-utils commit to run the step commands from; the same SHA the caller pins this workflow at.
+        description: The commit of tools_repository to run the step commands from; the same SHA the caller pins this workflow at.
         type: string
         required: true
       review_runs_on:
@@ -145,7 +152,7 @@ jobs:
         id: tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: 9atatimer/tds-utils
+          repository: ${{ inputs.tools_repository }}
           ref: ${{ inputs.tools_ref }}
           path: .ocr-review-tools
           persist-credentials: false
@@ -249,7 +256,7 @@ jobs:
         id: tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: 9atatimer/tds-utils
+          repository: ${{ inputs.tools_repository }}
           ref: ${{ inputs.tools_ref }}
           path: .ocr-review-tools
           persist-credentials: false
@@ -417,7 +424,7 @@ jobs:
         if: always()
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: 9atatimer/tds-utils
+          repository: ${{ inputs.tools_repository }}
           ref: ${{ inputs.tools_ref }}
           path: .ocr-review-tools
           persist-credentials: false

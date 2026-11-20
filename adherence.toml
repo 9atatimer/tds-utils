@@ -57,6 +57,8 @@ test = [
     "test/smoketest_release.sh",
     # Created by this change (tds-utils Issue#828), declared by it.
     "test/smoketest_tds_public.sh",
+    # Created by this change (tds-utils Issue#829), declared by it.
+    "test/workflows_tools_repository.test.mjs",
 ]
 
 [records]
