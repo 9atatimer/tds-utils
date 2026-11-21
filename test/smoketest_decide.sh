@@ -18,6 +18,7 @@ run_suites() {
         "${REPO_ROOT}/test/decide_backend.test.mjs" \
         "${REPO_ROOT}/test/decide_answers.test.mjs" \
         "${REPO_ROOT}/test/decide_failure.test.mjs" \
+        "${REPO_ROOT}/test/decide_entrypoint.test.mjs" \
         "${REPO_ROOT}/test/decide_io.test.mjs"
 }
 
