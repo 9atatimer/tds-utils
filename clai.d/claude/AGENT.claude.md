@@ -15,6 +15,7 @@ narrow the core rules above; none of them relaxes one.
 - Never call `AskUserQuestion`.
 - Never call `ScheduleWakeup`, `CronCreate` or a sleeping `Monitor`.
 - Run anything over ~30s with `run_in_background`; never start long work with `&`.
+- Every command you hand the human is one `!` line, so its output lands in the session.
 - On a classifier refusal, hand the human the exact `!` line once and stop.
 - Never use claude.ai Artifacts; an HTML deliverable is a file in the repo.
 - Never queue a task card.
@@ -22,6 +23,13 @@ narrow the core rules above; none of them relaxes one.
 - A fact you put in a subagent's prompt is a snapshot.
 - A stop hook's "unpushed commits" is not an order to push.
 - On a `<channel>` message, ack through the channel first, then work.
+
+## Commands you hand the human are `!` lines
+
+Prefix every command you hand the human with `! ` so it runs in this
+session and you see its output; read that output before handing over the
+next one. A command without the bang runs in another shell, and you are
+left guessing what it printed.
 
 ## Never call AskUserQuestion
 

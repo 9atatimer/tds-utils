@@ -24,7 +24,7 @@ below is complete in itself or summarizes the section of that name.
 - Never name a tier `staging`; the non-production tier is `preview`.
 - Ask in prose for the one value you cannot derive, with a one-line suggestion; never a choice menu or option cards.
 - Never set a timer or schedule for yourself, and never poll on a clock.
-- Hand the human a command only when it is ready to run, and say what it does.
+- Hand the human one command at a time, only when it is ready to run, and say what it does.
 - Never `curl | sh` or fetch an installer and run it; install only through package managers that verify signed code.
 - In zsh an unquoted `$VAR` is one word and a colon after it is a modifier; a pipeline's status is its last command's.
 - Never deploy or publish on your own initiative; when the owner tells you in the session to run it, run it.
@@ -126,8 +126,11 @@ everything it depends on is done; a command offered early gets run early.
 When the next step is someone else's (a merge, a review, an apply), name
 that step and stop.
 Say in one line what it does, whether it is interactive, and what it
-changes. A multi-command paste is one `&&` chain using
-`git -C <absolute path>`, never `cd`. Never guess a laptop path:
+changes. Hand over one command, then wait for its result before the
+next: a step that depends on an earlier one's output or success is a
+separate command, never an `&&` chain or a numbered set to run in one
+go. Scope it with `git -C <absolute path>` or `-chdir`, never `cd`.
+Never guess a laptop path:
 Nine-At-A-Time-Media checkouts are `~/workplace/naatm/<repo>`, personal
 ones `~/workplace/<repo>`; derive any other
 (`git rev-parse --path-format=absolute --show-toplevel`) or ask.
